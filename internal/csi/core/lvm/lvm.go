@@ -353,14 +353,14 @@ func (l *LVM) provisionVolumeGroup(ctx context.Context, name string, devices []s
 //
 // If all physical volumes exist or were created successfully, it returns them
 // as a list of device paths, otherwise it returns an error and an empty list.
-func (l *LVM) EnsurePhysicalVolumes(ctx context.Context, vgName string) ([]string, error) {
+func (l *LVM) EnsurePhysicalVolumes(ctx context.Context, vgName string, filter *probe.Filter) ([]string, error) {
 	log := log.FromContext(ctx)
 	recorder := events.FromContext(ctx)
 	ctx, span := l.tracer.Start(ctx, "volume.lvm.csi/EnsurePhysicalVolumes")
 	defer span.End()
 
 	// Get list of physical disks matching the device filter.
-	devices, err := l.probe.ScanAvailableDevices(ctx)
+	devices, err := l.probe.ScanAvailableDevices(ctx, filter)
 	if err != nil {
 		if errors.Is(err, probe.ErrNoDevicesFound) {
 			log.Error(err, "no devices found")
@@ -446,7 +446,7 @@ func (l *LVM) ensurePhysicalVolume(ctx context.Context, device string) (*lvm.Phy
 // EnsureVolume ensures that the volume exists with the given name and size.
 // If the volume already exists, it returns it. Otherwise it creates the
 // volume and returns it.
-func (l *LVM) EnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, isMountOperation bool) (int64, error) {
+func (l *LVM) EnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, filter *probe.Filter, isMountOperation bool) (int64, error) {
 	ctx, span := l.tracer.Start(ctx, "volume.lvm.csi/EnsureVolume", trace.WithAttributes(
 		attribute.String("vol.id", volumeId),
 		attribute.Int64("vol.capacity", capacity),
@@ -547,7 +547,7 @@ func (l *LVM) EnsureVolume(ctx context.Context, volumeId string, capacity int64,
 	}
 	if vg == nil {
 		log.V(2).Info("no existing volume group found, creating new one")
-		devices, err := l.EnsurePhysicalVolumes(ctx, id.VolumeGroup)
+		devices, err := l.EnsurePhysicalVolumes(ctx, id.VolumeGroup, filter)
 		if err != nil {
 			log.Error(err, "failed to ensure physical volumes")
 			span.SetStatus(codes.Error, "failed to ensure physical volumes")

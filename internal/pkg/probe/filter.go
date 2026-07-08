@@ -9,13 +9,44 @@ import (
 	"local-csi-driver/internal/pkg/block"
 )
 
-// EphemeralDiskFilter is a filter for ephemeral disks.
-var EphemeralDiskFilter = &Filter{
-	Filters: []FilterPredicate{
-		&PathFilter{Path: "/dev/nvme"},
-		NewModelFilter("Microsoft NVMe Direct Disk", "Microsoft NVMe Direct Disk v2"),
-		&TypeFilter{Type: "disk"},
-	},
+// Default disk selection values used when the corresponding StorageClass
+// parameter is not specified. These are kept in code, not persisted in the
+// volume context, so they can be adjusted in future driver versions without
+// breaking existing persistent volumes.
+var (
+	// DefaultDiskPathPrefixes is the default disk path prefix filter.
+	DefaultDiskPathPrefixes = []string{"/dev/nvme"}
+
+	// DefaultDiskModels is the default disk model filter.
+	DefaultDiskModels = []string{"Microsoft NVMe Direct Disk", "Microsoft NVMe Direct Disk v2"}
+
+	// DefaultDiskTypes is the default disk type filter.
+	DefaultDiskTypes = []string{"disk"}
+)
+
+// EphemeralDiskFilter is the default filter for ephemeral disks.
+var EphemeralDiskFilter = NewDiskFilter(nil, nil, nil)
+
+// NewDiskFilter creates a filter matching devices by path prefix, model and
+// type. A device must match all three predicates; within a predicate, any
+// value may match. Empty or nil slices fall back to the package defaults.
+func NewDiskFilter(pathPrefixes, models, types []string) *Filter {
+	if len(pathPrefixes) == 0 {
+		pathPrefixes = DefaultDiskPathPrefixes
+	}
+	if len(models) == 0 {
+		models = DefaultDiskModels
+	}
+	if len(types) == 0 {
+		types = DefaultDiskTypes
+	}
+	return &Filter{
+		Filters: []FilterPredicate{
+			NewPathFilter(pathPrefixes...),
+			NewModelFilter(models...),
+			NewTypeFilter(types...),
+		},
+	}
 }
 
 // FilterPredicate defines a predicate for filtering devices.
@@ -37,22 +68,40 @@ func (f *Filter) Match(device block.Device) bool {
 	return true
 }
 
+func NewPathFilter(prefixes ...string) *PathFilter {
+	return &PathFilter{Paths: prefixes}
+}
+
 // PathFilter matches devices by path prefix.
 type PathFilter struct {
-	Path string
+	Paths []string
 }
 
 func (f *PathFilter) Match(device block.Device) bool {
-	return strings.HasPrefix(device.Path, f.Path)
+	for _, path := range f.Paths {
+		if strings.HasPrefix(device.Path, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func NewTypeFilter(types ...string) *TypeFilter {
+	return &TypeFilter{Types: types}
 }
 
 // TypeFilter matches devices by type.
 type TypeFilter struct {
-	Type string
+	Types []string
 }
 
 func (f *TypeFilter) Match(device block.Device) bool {
-	return strings.EqualFold(device.Type, f.Type)
+	for _, t := range f.Types {
+		if strings.EqualFold(device.Type, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func NewModelFilter(models ...string) *ModelFilter {

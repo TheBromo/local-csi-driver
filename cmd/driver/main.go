@@ -237,10 +237,8 @@ func main() {
 		logAndExit(err, "failed to initialize raid")
 	}
 
-	// TODO(sc): move filter to controller so we can read filters from
-	// storageclass params. Hardcoded for now.
 	blockDevUtils := block.New()
-	deviceProbe := probe.New(blockDevUtils, probe.EphemeralDiskFilter)
+	deviceProbe := probe.New(blockDevUtils)
 
 	// Create the LVM manager.
 	// LVM manager is an abstraction that understands how to create and

@@ -1,0 +1,17 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-disk-selection
+provisioner: localdisk.csi.acstor.io
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+parameters:
+  # Customize which disks are selected for the LVM volume group.
+  # Each parameter accepts a comma-separated list of values. A disk is
+  # selected only if it matches all three parameters; within a parameter,
+  # matching any value is sufficient. Unspecified parameters use the
+  # defaults, which work for local NVMe disks on Azure VMs.
+  localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sd
+  localdisk.csi.acstor.io/disk-models: Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2
+  localdisk.csi.acstor.io/disk-types: disk

@@ -63,7 +63,7 @@ func (s *StartupDiagnostic) Start(ctx context.Context) error {
 	log := log.FromContext(ctx).WithName("startup-diagnostic")
 
 	// Check if there are any available disks.
-	devices, err := s.probe.ScanAvailableDevices(ctx)
+	devices, err := s.probe.ScanAvailableDevices(ctx, s.filter)
 	if err != nil && !errors.Is(err, probe.ErrNoDevicesFound) {
 		log.Error(err, "failed to scan for available devices during startup diagnostic")
 		return nil
@@ -186,11 +186,13 @@ func buildDiskDiscoveryMessage(available []block.Device, summary deviceSummary) 
 // available, with diagnostic context and remediation advice.
 func buildNoDiskMessage(summary deviceSummary) string {
 	if summary.total == 0 {
-		return "No NVMe disks matching the expected model (Microsoft NVMe Direct Disk) " +
-			"were found on this node. This can happen when the node pool uses a VM SKU " +
-			"with ephemeral OS disk enabled, which consumes the NVMe disk for the OS. " +
-			"Consider using a VM SKU with additional NVMe disks, or disable " +
-			"ephemeral OS disk on the node pool."
+		return fmt.Sprintf("No NVMe disks matching the default disk models (%s) "+
+			"were found on this node. This can happen when the node pool uses a VM SKU "+
+			"with ephemeral OS disk enabled, which consumes the NVMe disk for the OS. "+
+			"Consider using a VM SKU with additional NVMe disks, or disable "+
+			"ephemeral OS disk on the node pool. Disks matching custom StorageClass "+
+			"disk selection parameters may still be picked up at provisioning time.",
+			strings.Join(probe.DefaultDiskModels, ", "))
 	}
 
 	if summary.nonLVM2Formatted == summary.total {

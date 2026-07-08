@@ -350,6 +350,104 @@ func TestLVM_Create(t *testing.T) {
 	}
 }
 
+func TestLVM_CreateDiskSelectionParams(t *testing.T) {
+	t.Parallel()
+	tp := telemetry.NewNoopTracerProvider()
+	p := probe.NewFake([]string{"device1", "device2"}, nil)
+	lvmManager := lvmMgr.NewFake()
+
+	l, err := lvm.New("podname", "nodename", "default", true, p, lvmManager, tp)
+	if err != nil {
+		t.Fatalf("failed to create LVM instance: %v", err)
+	}
+
+	req := &csi.CreateVolumeRequest{
+		Name: "test-volume",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1024 * 1024 * 1024, // 1 GiB
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Block{
+					Block: &csi.VolumeCapability_BlockVolume{},
+				},
+			},
+		},
+		Parameters: map[string]string{
+			lvm.DiskPathPrefixesParam: "/dev/sd",
+			lvm.DiskModelsParam:       "Samsung SSD, Intel SSD",
+		},
+	}
+
+	got, err := l.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("LVM.Create() error = %v", err)
+	}
+
+	// User-specified disk params round-trip into the volume context; the
+	// unspecified disk-types param and defaults must not be injected.
+	wantContext := map[string]string{
+		"localdisk.csi.acstor.io/capacity": "1073741824",
+		"localdisk.csi.acstor.io/limit":    "0",
+		lvm.DiskPathPrefixesParam:          "/dev/sd",
+		lvm.DiskModelsParam:                "Samsung SSD, Intel SSD",
+	}
+	if !reflect.DeepEqual(got.VolumeContext, wantContext) {
+		t.Errorf("LVM.Create() VolumeContext\ngot:\n%v\nwant:\n%v", got.VolumeContext, wantContext)
+	}
+
+	// The parsed filter must reach the probe and reflect the custom params
+	// with defaults for the unspecified disk-types param.
+	if p.LastFilter == nil {
+		t.Fatal("expected a filter to be passed to the probe")
+	}
+	if !p.LastFilter.Match(block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung SSD"}) {
+		t.Error("expected filter to match custom device")
+	}
+	if p.LastFilter.Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Microsoft NVMe Direct Disk"}) {
+		t.Error("expected filter to reject default device when custom params are set")
+	}
+}
+
+func TestGetCapacityDiskSelectionParams(t *testing.T) {
+	t.Parallel()
+	tp := telemetry.NewNoopTracerProvider()
+	p := probe.NewFake([]string{"device1"}, nil)
+	lvmManager := lvmMgr.NewFake()
+
+	l, err := lvm.New("podname", "nodename", "default", true, p, lvmManager, tp)
+	if err != nil {
+		t.Fatalf("failed to create LVM instance: %v", err)
+	}
+
+	req := &csi.GetCapacityRequest{
+		Parameters: map[string]string{
+			lvm.DiskModelsParam: "Samsung SSD",
+		},
+		AccessibleTopology: &csi.Topology{
+			Segments: map[string]string{
+				lvm.TopologyKey: "nodename",
+			},
+		},
+	}
+
+	if _, err := l.GetCapacity(context.Background(), req); err != nil {
+		t.Fatalf("LVM.GetCapacity() error = %v", err)
+	}
+
+	// The parsed filter must reach the probe: custom models, default path
+	// prefixes and types.
+	if p.LastFilter == nil {
+		t.Fatal("expected a filter to be passed to the probe")
+	}
+	if !p.LastFilter.Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Samsung SSD"}) {
+		t.Error("expected filter to match custom model")
+	}
+	if p.LastFilter.Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Microsoft NVMe Direct Disk"}) {
+		t.Error("expected filter to reject default model when custom models are set")
+	}
+}
+
 func TestAvailableCapacity(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -367,7 +465,7 @@ func TestAvailableCapacity(t *testing.T) {
 				m.EXPECT().GetVolumeGroup(gomock.Any(), testVolumeGroup).Return(nil, lvmMgr.ErrNotFound)
 			},
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 			},
 			expectedCap: 0,
 		},
@@ -378,7 +476,7 @@ func TestAvailableCapacity(t *testing.T) {
 				m.EXPECT().GetVolumeGroup(gomock.Any(), testVolumeGroup).Return(nil, lvmMgr.ErrNotFound)
 			},
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 			},
 			expectedCap: 0,
 		},
@@ -409,7 +507,7 @@ func TestAvailableCapacity(t *testing.T) {
 						},
 					},
 				}
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedCap: 8 * 1024 * 1024,
 		},
@@ -433,7 +531,7 @@ func TestAvailableCapacity(t *testing.T) {
 						},
 					},
 				}
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedCap: 16 * 1024 * 1024,
 		},
@@ -466,7 +564,7 @@ func TestAvailableCapacity(t *testing.T) {
 						},
 					},
 				}
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedCap: 16 * 1024 * 1024,
 		},
@@ -499,7 +597,7 @@ func TestAvailableCapacity(t *testing.T) {
 						},
 					},
 				}
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedCap: 24 * 1024 * 1024,
 		},
@@ -519,7 +617,7 @@ func TestAvailableCapacity(t *testing.T) {
 						},
 					},
 				}
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedCap: 0,
 		},
@@ -538,7 +636,7 @@ func TestAvailableCapacity(t *testing.T) {
 			if tt.expectProbe != nil {
 				tt.expectProbe(p)
 			}
-			cap, err := l.AvailableCapacity(context.Background(), tt.vgName)
+			cap, err := l.AvailableCapacity(context.Background(), tt.vgName, probe.EphemeralDiskFilter)
 			if !errors.Is(err, tt.expectedErr) {
 				t.Errorf("EnsureVolume() error = %v, expectErr %v", err, tt.expectedErr)
 			}

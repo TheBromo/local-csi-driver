@@ -17,6 +17,10 @@ type Fake struct {
 	DiskPoolCapacity int64
 	Err              error
 	BaseDir          string
+
+	// NodeEnsureVolumeContext records the volume context passed to the most
+	// recent NodeEnsureVolume call so tests can assert on it.
+	NodeEnsureVolumeContext map[string]string
 }
 
 func NewFake() *Fake {
@@ -85,7 +89,8 @@ func (f *Fake) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRe
 	}, nil
 }
 
-func (f *Fake) NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64) error {
+func (f *Fake) NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, volumeContext map[string]string) error {
+	f.NodeEnsureVolumeContext = volumeContext
 	if f.Err != nil {
 		return f.Err
 	}

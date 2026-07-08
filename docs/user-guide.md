@@ -113,9 +113,44 @@ kubectl apply -f storageclass.yaml
 
 The local-csi-driver supports several optional parameters in the StorageClass:
 
-| Parameter                               | Description                                               | Values                       | Default                              |
-|-----------------------------------------|-----------------------------------------------------------|------------------------------|--------------------------------------|
-| `localdisk.csi.acstor.io/failover-mode` | Controls pod scheduling behavior in hyperconverged setups | `availability`, `durability` | Not set (defaults to `availability`) |
+| Parameter                                    | Description                                               | Values                       | Default                                                    |
+|----------------------------------------------|-----------------------------------------------------------|------------------------------|------------------------------------------------------------|
+| `localdisk.csi.acstor.io/failover-mode`      | Controls pod scheduling behavior in hyperconverged setups | `availability`, `durability` | Not set (defaults to `availability`)                       |
+| `localdisk.csi.acstor.io/disk-path-prefixes` | Prefix of the disk path                                   | Comma-separated prefixes     | `/dev/nvme`                                                |
+| `localdisk.csi.acstor.io/disk-models`        | Model of the disk                                         | Comma-separated models       | `Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2` |
+| `localdisk.csi.acstor.io/disk-types`         | Type of the disk (e.g. `disk`, `loop`)                    | Comma-separated types        | `disk`                                                     |
+
+#### Disk Selection
+
+The three `disk-*` parameters control which disks are used to create the LVM
+volume group. A disk is selected only if it matches **all** of the specified
+parameters; within a parameter, matching **any** of the comma-separated values
+is sufficient. Any parameter that is omitted (or left empty) falls back to its
+default value, which works for local NVMe disks on Azure VMs.
+
+Example StorageClass with custom disk selection:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local
+provisioner: localdisk.csi.acstor.io
+parameters:
+  localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sd
+  localdisk.csi.acstor.io/disk-models: Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2
+  localdisk.csi.acstor.io/disk-types: disk
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+```
+
+> [!NOTE]
+> The disk selection parameters only take effect when the volume group is
+> first created on a node. If two StorageClasses use the same volume group
+> name with different disk selection parameters, the parameters of whichever
+> StorageClass provisions first on a node win. Disks that are already
+> formatted with a non-LVM filesystem are never selected, so pre-formatting a
+> disk is a way to exclude it.
 
 #### Failover Modes
 

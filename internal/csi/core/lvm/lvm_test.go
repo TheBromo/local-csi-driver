@@ -208,7 +208,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "no matching physical volumes",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 			},
 			expectedPaths: nil,
 			expectedErr:   core.ErrResourceExhausted,
@@ -216,7 +216,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "other error from probe",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, errTestInternal)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, errTestInternal)
 			},
 			expectedPaths: nil,
 			expectedErr:   errTestInternal,
@@ -224,7 +224,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "create physical volumes error",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(nil, lvmMgr.ErrNotFound)
@@ -236,7 +236,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "create physical volumes concurrent error already exists",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(nil, lvmMgr.ErrNotFound).Times(1)
@@ -251,7 +251,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "create physical volumes partial internal error",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(nil, errTestInternal)
@@ -262,7 +262,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "skip existing physical volumes create",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(&lvmMgr.PhysicalVolume{Name: "/dev/pv1"}, nil).Times(1)
@@ -276,7 +276,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "normal success case",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(nil, lvmMgr.ErrNotFound).Times(1)
@@ -291,7 +291,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "all pv in use for other vg",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(&lvmMgr.PhysicalVolume{Name: "/dev/pv1", VGName: otherVg}, nil).Times(1)
@@ -302,7 +302,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 		{
 			name: "all pv in current vg",
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectLvm: func(m *lvmMgr.MockManager) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(&lvmMgr.PhysicalVolume{Name: "/dev/pv1", VGName: testVg}, nil).Times(1)
@@ -327,7 +327,7 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 			if tc.expectLvm != nil {
 				tc.expectLvm(m)
 			}
-			paths, err := l.EnsurePhysicalVolumes(context.Background(), "testVg")
+			paths, err := l.EnsurePhysicalVolumes(context.Background(), "testVg", probe.EphemeralDiskFilter)
 			if !errors.Is(err, tc.expectedErr) {
 				t.Errorf("EnsurePhysicalVolumes() error = %v, expectErr %v", err, tc.expectedErr)
 			}
@@ -693,7 +693,7 @@ func TestEnsureVolume(t *testing.T) {
 				m.EXPECT().GetVolumeGroup(gomock.Any(), gomock.Any()).Return(nil, lvmMgr.ErrNotFound)
 			},
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, errTestInternal)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, errTestInternal)
 			},
 			expectedErr: errTestInternal,
 		},
@@ -712,7 +712,7 @@ func TestEnsureVolume(t *testing.T) {
 
 			},
 			expectProbe: func(p *probe.Mock) {
-				p.EXPECT().ScanAvailableDevices(gomock.Any()).Return(devices, nil)
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(devices, nil)
 			},
 			expectedErr: errTestInternal,
 		},
@@ -778,7 +778,7 @@ func TestEnsureVolume(t *testing.T) {
 			if tt.expectProbe != nil {
 				tt.expectProbe(p)
 			}
-			_, err = l.EnsureVolume(context.Background(), tt.volumeId, tt.request, tt.limit, true)
+			_, err = l.EnsureVolume(context.Background(), tt.volumeId, tt.request, tt.limit, probe.EphemeralDiskFilter, true)
 			if !errors.Is(err, tt.expectedErr) {
 				t.Errorf("EnsureVolume() error = %v, expectErr %v", err, tt.expectedErr)
 			}

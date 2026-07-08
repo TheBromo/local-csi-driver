@@ -86,7 +86,7 @@ func (l *LVM) Create(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.Vo
 		return nil, fmt.Errorf("failed to create volume id: %w", err)
 	}
 
-	allocatedSize, err := l.EnsureVolume(ctx, id.String(), capacity, limit, false)
+	allocatedSize, err := l.EnsureVolume(ctx, id.String(), capacity, limit, diskFilterFromParams(params), false)
 	if err != nil {
 		// Check for existing volume on the node.
 		log.Error(err, "failed to ensure volume", "name", id.String())
@@ -315,7 +315,7 @@ func (l *LVM) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*cs
 
 	// Fetch the available capacity for the volume group, or the matching disks
 	// if not created yet.
-	availableCapacity, err := l.AvailableCapacity(ctx, vgName)
+	availableCapacity, err := l.AvailableCapacity(ctx, vgName, diskFilterFromParams(params))
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func (l *LVM) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*cs
 }
 
 // TODO(sc): use a cache.
-func (l *LVM) AvailableCapacity(ctx context.Context, vgName string) (int64, error) {
+func (l *LVM) AvailableCapacity(ctx context.Context, vgName string, filter *probe.Filter) (int64, error) {
 	log := log.FromContext(ctx)
 	ctx, span := l.tracer.Start(ctx, "volume.lvm.csi/AvailableCapacity", trace.WithAttributes(
 		attribute.String("vol.group", vgName),
@@ -351,7 +351,7 @@ func (l *LVM) AvailableCapacity(ctx context.Context, vgName string) (int64, erro
 
 	// Otherwise, the volume group hasn't been created yet, so we can return the
 	// total size of all available disks matching the device filter.
-	filtered, err := l.probe.ScanAvailableDevices(ctx)
+	filtered, err := l.probe.ScanAvailableDevices(ctx, filter)
 	if err != nil {
 		if errors.Is(err, probe.ErrNoDevicesFound) {
 			span.SetStatus(codes.Ok, "no devices found matching filter")

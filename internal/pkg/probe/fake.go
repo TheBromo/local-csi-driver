@@ -12,6 +12,10 @@ import (
 type Fake struct {
 	Devices []string
 	Err     error
+
+	// LastFilter records the filter passed to the most recent
+	// ScanAvailableDevices call so tests can assert on it.
+	LastFilter *Filter
 }
 
 // NewFake creates a new fake probe.
@@ -23,7 +27,8 @@ func NewFake(devices []string, err error) *Fake {
 }
 
 // ScanAvailableDevices simulates scanning for available devices.
-func (f *Fake) ScanAvailableDevices(ctx context.Context) (*block.DeviceList, error) {
+func (f *Fake) ScanAvailableDevices(ctx context.Context, filter *Filter) (*block.DeviceList, error) {
+	f.LastFilter = filter
 	if f.Err != nil {
 		return nil, f.Err
 	}

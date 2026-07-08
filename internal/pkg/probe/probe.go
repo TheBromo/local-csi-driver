@@ -19,7 +19,7 @@ var (
 
 //go:generate mockgen -copyright_file ../../../hack/mockgen_copyright.txt -destination=mock_probe.go -mock_names=Interface=Mock -package=probe -source=probe.go Interface
 type Interface interface {
-	ScanAvailableDevices(ctx context.Context) (*block.DeviceList, error)
+	ScanAvailableDevices(ctx context.Context, filter *Filter) (*block.DeviceList, error)
 }
 
 var _ Interface = &deviceScanner{}
@@ -27,17 +27,21 @@ var _ Interface = &deviceScanner{}
 // deviceScanner is a struct that implements the DeviceScanner interface.
 type deviceScanner struct {
 	block.Interface
-	filter *Filter
 }
 
 // New creates a new deviceScanner instance.
-func New(b block.Interface, f *Filter) Interface {
-	return &deviceScanner{b, f}
+func New(b block.Interface) Interface {
+	return &deviceScanner{b}
 }
 
-// ScanAvailableDevices retrieves devices that are unformatted.
-func (m *deviceScanner) ScanAvailableDevices(ctx context.Context) (*block.DeviceList, error) {
+// ScanAvailableDevices retrieves devices matching the filter that are
+// unformatted or already LVM physical volumes. A nil filter falls back to
+// the default EphemeralDiskFilter.
+func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter) (*block.DeviceList, error) {
 	log := log.FromContext(ctx)
+	if filter == nil {
+		filter = EphemeralDiskFilter
+	}
 	devices, err := m.GetDevices(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get devices: %w", err)
@@ -45,7 +49,7 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context) (*block.Device
 
 	var availableDevices []block.Device
 	for _, device := range devices.Devices {
-		if !m.filter.Match(device) {
+		if !filter.Match(device) {
 			log.V(3).Info("device filtered out", "device", device)
 			continue
 		}
