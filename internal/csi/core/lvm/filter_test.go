@@ -64,6 +64,7 @@ func TestDiskFilterFromParams(t *testing.T) {
 
 	tests := []struct {
 		name     string
+		defaults DiskSelectionDefaults
 		params   map[string]string
 		device   block.Device
 		expected bool
@@ -139,15 +140,117 @@ func TestDiskFilterFromParams(t *testing.T) {
 			device:   defaultDevice,
 			expected: true,
 		},
+		{
+			name: "wildcard models accepts any model",
+			params: map[string]string{
+				DiskPathPrefixesParam: "/dev/sd",
+				DiskModelsParam:       "*",
+			},
+			device:   customDevice,
+			expected: true,
+		},
+		{
+			name: "wildcard mixed with other values accepts any model",
+			params: map[string]string{
+				DiskPathPrefixesParam: "/dev/sd",
+				DiskModelsParam:       "Intel SSD,*",
+			},
+			device:   customDevice,
+			expected: true,
+		},
+		{
+			name: "wildcard models still enforces path prefix",
+			params: map[string]string{
+				DiskModelsParam: "*",
+			},
+			device:   customDevice,
+			expected: false,
+		},
+		{
+			name: "configured defaults used when params absent",
+			defaults: DiskSelectionDefaults{
+				PathPrefixes: []string{"/dev/sd"},
+				Models:       []string{"Samsung SSD"},
+			},
+			params:   nil,
+			device:   customDevice,
+			expected: true,
+		},
+		{
+			name: "configured defaults reject default device",
+			defaults: DiskSelectionDefaults{
+				PathPrefixes: []string{"/dev/sd"},
+				Models:       []string{"Samsung SSD"},
+			},
+			params:   nil,
+			device:   defaultDevice,
+			expected: false,
+		},
+		{
+			name: "storage class param overrides configured default",
+			defaults: DiskSelectionDefaults{
+				PathPrefixes: []string{"/dev/sd"},
+				Models:       []string{"Samsung SSD"},
+			},
+			params: map[string]string{
+				DiskPathPrefixesParam: "/dev/nvme",
+				DiskModelsParam:       "Microsoft NVMe Direct Disk",
+			},
+			device:   defaultDevice,
+			expected: true,
+		},
+		{
+			name: "per-parameter fallback mixes param, configured default and code default",
+			defaults: DiskSelectionDefaults{
+				Models: []string{"Samsung SSD"},
+			},
+			params: map[string]string{
+				DiskPathPrefixesParam: "/dev/sd",
+			},
+			// path from param, model from configured default, type from code default.
+			device:   customDevice,
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filter := diskFilterFromParams(tt.params)
+			l := &LVM{diskDefaults: tt.defaults}
+			filter := l.diskFilterFromParams(tt.params)
 			result := filter.Match(tt.device)
 			if result != tt.expected {
 				t.Errorf("Match(%v) = %v, want %v", tt.device, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestNewDiskSelectionDefaults(t *testing.T) {
+	d := NewDiskSelectionDefaults(" /dev/nvme , /dev/sd ", "", "disk,,loop")
+	if !reflect.DeepEqual(d.PathPrefixes, []string{"/dev/nvme", "/dev/sd"}) {
+		t.Errorf("PathPrefixes = %v, want [/dev/nvme /dev/sd]", d.PathPrefixes)
+	}
+	if d.Models != nil {
+		t.Errorf("Models = %v, want nil", d.Models)
+	}
+	if !reflect.DeepEqual(d.Types, []string{"disk", "loop"}) {
+		t.Errorf("Types = %v, want [disk loop]", d.Types)
+	}
+}
+
+func TestDiskSelectionDefaultsFilter(t *testing.T) {
+	// Empty defaults produce the built-in default filter.
+	empty := DiskSelectionDefaults{}
+	if !empty.Filter().Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Microsoft NVMe Direct Disk"}) {
+		t.Error("expected empty defaults to match the default device")
+	}
+
+	// Custom defaults are honored, with code defaults for unset fields.
+	custom := DiskSelectionDefaults{PathPrefixes: []string{"/dev/sd"}, Models: []string{"*"}}
+	if !custom.Filter().Match(block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung SSD"}) {
+		t.Error("expected custom defaults to match the custom device")
+	}
+	if custom.Filter().Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Microsoft NVMe Direct Disk"}) {
+		t.Error("expected custom defaults to reject the default device path")
 	}
 }

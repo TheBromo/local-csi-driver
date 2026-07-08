@@ -86,7 +86,7 @@ func (l *LVM) Create(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.Vo
 		return nil, fmt.Errorf("failed to create volume id: %w", err)
 	}
 
-	allocatedSize, err := l.EnsureVolume(ctx, id.String(), capacity, limit, diskFilterFromParams(params), false)
+	allocatedSize, err := l.EnsureVolume(ctx, id.String(), capacity, limit, l.diskFilterFromParams(params), false)
 	if err != nil {
 		// Check for existing volume on the node.
 		log.Error(err, "failed to ensure volume", "name", id.String())
@@ -315,7 +315,7 @@ func (l *LVM) GetCapacity(ctx context.Context, req *csi.GetCapacityRequest) (*cs
 
 	// Fetch the available capacity for the volume group, or the matching disks
 	// if not created yet.
-	availableCapacity, err := l.AvailableCapacity(ctx, vgName, diskFilterFromParams(params))
+	availableCapacity, err := l.AvailableCapacity(ctx, vgName, l.diskFilterFromParams(params))
 	if err != nil {
 		return nil, err
 	}

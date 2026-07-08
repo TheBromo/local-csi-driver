@@ -116,19 +116,26 @@ The local-csi-driver supports several optional parameters in the StorageClass:
 | Parameter                                    | Description                                               | Values                       | Default                                                    |
 |----------------------------------------------|-----------------------------------------------------------|------------------------------|------------------------------------------------------------|
 | `localdisk.csi.acstor.io/failover-mode`      | Controls pod scheduling behavior in hyperconverged setups | `availability`, `durability` | Not set (defaults to `availability`)                       |
-| `localdisk.csi.acstor.io/disk-path-prefixes` | Prefix of the disk path                                   | Comma-separated prefixes     | `/dev/nvme`                                                |
-| `localdisk.csi.acstor.io/disk-models`        | Model of the disk                                         | Comma-separated models       | `Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2` |
-| `localdisk.csi.acstor.io/disk-types`         | Type of the disk (e.g. `disk`, `loop`)                    | Comma-separated types        | `disk`                                                     |
+| `localdisk.csi.acstor.io/disk-path-prefixes` | Prefix of the disk path                                   | Comma-separated prefixes, or `*` | `/dev/nvme`                                                |
+| `localdisk.csi.acstor.io/disk-models`        | Model of the disk                                         | Comma-separated models, or `*`   | `Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2` |
+| `localdisk.csi.acstor.io/disk-types`         | Type of the disk (e.g. `disk`, `loop`)                    | Comma-separated types, or `*`    | `disk`                                                     |
 
 #### Disk Selection
 
 The three `disk-*` parameters control which disks are used to create the LVM
 volume group. A disk is selected only if it matches **all** of the specified
 parameters; within a parameter, matching **any** of the comma-separated values
-is sufficient. Any parameter that is omitted (or left empty) falls back to its
-default value, which works for local NVMe disks on Azure VMs.
+is sufficient. A value of `*` matches anything for that parameter. Any
+parameter that is omitted (or left empty) falls back to its default value,
+which works for local NVMe disks on Azure VMs.
 
-Example StorageClass with custom disk selection:
+Because the parameters are combined with AND semantics, selecting non-NVMe
+disks (e.g. SATA/SCSI `/dev/sd*` devices) requires overriding
+`disk-models` as well — the default models only match Azure NVMe direct
+disks. Use `disk-models: "*"` to accept any model, or list your disks'
+model strings (as reported by `lsblk -o PATH,MODEL,TYPE`).
+
+Example StorageClass that selects NVMe and SATA/SCSI disks of any model:
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -138,11 +145,19 @@ metadata:
 provisioner: localdisk.csi.acstor.io
 parameters:
   localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sd
-  localdisk.csi.acstor.io/disk-models: Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2
+  localdisk.csi.acstor.io/disk-models: "*"
   localdisk.csi.acstor.io/disk-types: disk
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 ```
+
+The defaults can also be changed for the whole installation, so every
+StorageClass without explicit `disk-*` parameters uses your values: set
+`diskSelection.pathPrefixes`, `diskSelection.models` and/or
+`diskSelection.types` in the Helm chart (wired to the driver's
+`--disk-path-prefixes`, `--disk-models` and `--disk-types` flags). The
+precedence per parameter is: StorageClass parameter, then driver flag, then
+built-in default.
 
 > [!NOTE]
 > The disk selection parameters only take effect when the volume group is

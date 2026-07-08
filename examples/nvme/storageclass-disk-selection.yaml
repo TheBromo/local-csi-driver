@@ -12,6 +12,11 @@ parameters:
   # selected only if it matches all three parameters; within a parameter,
   # matching any value is sufficient. Unspecified parameters use the
   # defaults, which work for local NVMe disks on Azure VMs.
+  #
+  # A value of "*" matches anything for that parameter. Because the
+  # parameters are combined with AND semantics, selecting non-NVMe disks
+  # (e.g. /dev/sd*) requires also overriding disk-models: the default
+  # models only match Azure NVMe direct disks.
   localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sd
-  localdisk.csi.acstor.io/disk-models: Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2
+  localdisk.csi.acstor.io/disk-models: "*"
   localdisk.csi.acstor.io/disk-types: disk

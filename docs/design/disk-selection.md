@@ -44,6 +44,17 @@ the user specifies `localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/s
 the driver will select disks that have either `/dev/nvme` or `/dev/sda` as the
 path prefix.
 
+A value of `*` matches anything for that parameter. Because the parameters
+are combined with AND semantics, this is the practical way to select
+non-NVMe disks without enumerating their model strings (e.g.
+`disk-path-prefixes: /dev/sd` with `disk-models: "*"`).
+
+In addition to the per-StorageClass parameters, the driver exposes
+`--disk-path-prefixes`, `--disk-models` and `--disk-types` flags (wired to
+the Helm chart's `diskSelection` values) that change the node-level
+defaults. Precedence per parameter: StorageClass parameter, then driver
+flag, then built-in default.
+
 | Parameter                                    | Description                | Default Value                                              |
 |----------------------------------------------|----------------------------|------------------------------------------------------------|
 | `localdisk.csi.acstor.io/disk-path-prefixes` | Prefix of the disk path    | `/dev/nvme`                                                |
@@ -60,7 +71,7 @@ metadata:
 provisioner: localdisk.csi.acstor.io
 parameters:
   localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sda
-  localdisk.csi.acstor.io/disk-models: Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2
+  localdisk.csi.acstor.io/disk-models: "*"
   localdisk.csi.acstor.io/disk-types: disk
 reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer

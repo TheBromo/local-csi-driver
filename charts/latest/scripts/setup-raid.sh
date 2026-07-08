@@ -8,6 +8,8 @@ set -o pipefail
 
 RAID_NAME="local-csi"
 VOLUME_GROUP="${VOLUME_GROUP:-containerstorage}"
+# Space-separated glob patterns for candidate devices.
+DEVICE_PATHS="${DEVICE_PATHS:-/dev/nvme*n*}"
 
 if vgdisplay "${VOLUME_GROUP}" &> /dev/null; then
         echo "Volume group ${VOLUME_GROUP} already exists. Nothing to do."
@@ -43,10 +45,13 @@ if [ -n "${RAID_DEVICE}" ]; then
         echo "Found existing RAID device ${RAID_DEVICE} with name ${RAID_NAME}"
 fi
 
-ALL_NVME_DEVICES=$(ls /dev/nvme*n* 2>/dev/null)
+ALL_DEVICES=""
+for pattern in ${DEVICE_PATHS}; do
+        ALL_DEVICES+=" $(ls ${pattern} 2>/dev/null || true)"
+done
 UNUSED_DEVICES=()
 
-for device in $ALL_NVME_DEVICES; do
+for device in $ALL_DEVICES; do
         if mdadm --examine "$device" | grep -q 'RAID superblock'; then
                 continue
         fi
@@ -60,7 +65,7 @@ for device in $ALL_NVME_DEVICES; do
 done
 
 if [ "${#UNUSED_DEVICES[@]}" -eq 1 ]; then
-        echo "Only one unused NVMe device found: ${UNUSED_DEVICES[0]}"
+        echo "Only one unused device found: ${UNUSED_DEVICES[0]}"
         DEVICE="${UNUSED_DEVICES[0]}"
         echo "Creating LVM volume group ${VOLUME_GROUP} on ${DEVICE}"
         pvcreate "${DEVICE}"
@@ -76,7 +81,7 @@ else
                 # We shouldn't reach here because of the earlier
                 # checks. The device should have been added to LVM
                 # directly.
-                echo "Error: Found fewer than 2 unused NVMe devices.  Cannot create a RAID0 array."
+                echo "Error: Found fewer than 2 unused devices.  Cannot create a RAID0 array."
                 exit 1
         fi
         echo ""

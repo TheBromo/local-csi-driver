@@ -37,7 +37,7 @@ func initTestLVM(ctrl *gomock.Controller) (*lvm.LVM, *probe.Mock, *lvmMgr.MockMa
 	t := telemetry.NewNoopTracerProvider()
 	p := probe.NewMock(ctrl)
 	lvmMgr := lvmMgr.NewMockManager(ctrl)
-	l, err := lvm.New(testPodName, testNodeName, testPodNamespace, true, p, lvmMgr, t)
+	l, err := lvm.New(testPodName, testNodeName, testPodNamespace, true, lvm.DiskSelectionDefaults{}, p, lvmMgr, t)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -102,7 +102,7 @@ func TestNewLVM(t *testing.T) {
 			if tc.mutate != nil {
 				tc.mutate(&test)
 			}
-			got, err := lvm.New(test.podName, test.nodeName, test.namespace, test.enableCleanup, test.probe, test.manager, test.tracer)
+			got, err := lvm.New(test.podName, test.nodeName, test.namespace, test.enableCleanup, lvm.DiskSelectionDefaults{}, test.probe, test.manager, test.tracer)
 			if (err != nil) != tc.expectErr {
 				t.Errorf("New(%q) error = %v, expectErr %v", tc.name, err, tc.expectErr)
 			}

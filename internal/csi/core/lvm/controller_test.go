@@ -334,7 +334,7 @@ func TestLVM_Create(t *testing.T) {
 			p := probe.NewFake([]string{"device1", "device2"}, nil)
 			lvmMgr := lvmMgr.NewFake()
 
-			l, err := lvm.New("podname", "nodename", "default", true, p, lvmMgr, tp)
+			l, err := lvm.New("podname", "nodename", "default", true, lvm.DiskSelectionDefaults{}, p, lvmMgr, tp)
 			if err != nil {
 				t.Fatalf("failed to create LVM instance: %v", err)
 			}
@@ -356,7 +356,7 @@ func TestLVM_CreateDiskSelectionParams(t *testing.T) {
 	p := probe.NewFake([]string{"device1", "device2"}, nil)
 	lvmManager := lvmMgr.NewFake()
 
-	l, err := lvm.New("podname", "nodename", "default", true, p, lvmManager, tp)
+	l, err := lvm.New("podname", "nodename", "default", true, lvm.DiskSelectionDefaults{}, p, lvmManager, tp)
 	if err != nil {
 		t.Fatalf("failed to create LVM instance: %v", err)
 	}
@@ -409,13 +409,69 @@ func TestLVM_CreateDiskSelectionParams(t *testing.T) {
 	}
 }
 
+// TestLVM_CreateDriverDefaultsNotPersisted verifies that driver-level disk
+// selection defaults are applied when provisioning but never leak into the
+// returned VolumeContext.
+func TestLVM_CreateDriverDefaultsNotPersisted(t *testing.T) {
+	t.Parallel()
+	tp := telemetry.NewNoopTracerProvider()
+	p := probe.NewFake([]string{"device1"}, nil)
+	lvmManager := lvmMgr.NewFake()
+
+	defaults := lvm.NewDiskSelectionDefaults("/dev/sd", "*", "")
+	l, err := lvm.New("podname", "nodename", "default", true, defaults, p, lvmManager, tp)
+	if err != nil {
+		t.Fatalf("failed to create LVM instance: %v", err)
+	}
+
+	req := &csi.CreateVolumeRequest{
+		Name: "test-volume",
+		CapacityRange: &csi.CapacityRange{
+			RequiredBytes: 1024 * 1024 * 1024, // 1 GiB
+		},
+		VolumeCapabilities: []*csi.VolumeCapability{
+			{
+				AccessType: &csi.VolumeCapability_Block{
+					Block: &csi.VolumeCapability_BlockVolume{},
+				},
+			},
+		},
+		Parameters: map[string]string{},
+	}
+
+	got, err := l.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("LVM.Create() error = %v", err)
+	}
+
+	// Driver defaults must not appear in the volume context.
+	wantContext := map[string]string{
+		"localdisk.csi.acstor.io/capacity": "1073741824",
+		"localdisk.csi.acstor.io/limit":    "0",
+	}
+	if !reflect.DeepEqual(got.VolumeContext, wantContext) {
+		t.Errorf("LVM.Create() VolumeContext\ngot:\n%v\nwant:\n%v", got.VolumeContext, wantContext)
+	}
+
+	// But the filter passed to the probe must reflect the driver defaults.
+	if p.LastFilter == nil {
+		t.Fatal("expected a filter to be passed to the probe")
+	}
+	if !p.LastFilter.Match(block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung SSD"}) {
+		t.Error("expected filter to honor driver defaults (path prefix /dev/sd, any model)")
+	}
+	if p.LastFilter.Match(block.Device{Path: "/dev/nvme0n1", Type: "disk", Model: "Microsoft NVMe Direct Disk"}) {
+		t.Error("expected filter to reject default NVMe path when driver defaults override it")
+	}
+}
+
 func TestGetCapacityDiskSelectionParams(t *testing.T) {
 	t.Parallel()
 	tp := telemetry.NewNoopTracerProvider()
 	p := probe.NewFake([]string{"device1"}, nil)
 	lvmManager := lvmMgr.NewFake()
 
-	l, err := lvm.New("podname", "nodename", "default", true, p, lvmManager, tp)
+	l, err := lvm.New("podname", "nodename", "default", true, lvm.DiskSelectionDefaults{}, p, lvmManager, tp)
 	if err != nil {
 		t.Fatalf("failed to create LVM instance: %v", err)
 	}
@@ -763,7 +819,7 @@ func TestLVM_List(t *testing.T) {
 			tp := telemetry.NewNoopTracerProvider()
 			p := probe.NewFake([]string{"device1"}, nil)
 
-			l, err := lvm.New("test-pod", "test-node", "test-namespace", false, p, mockLVM, tp)
+			l, err := lvm.New("test-pod", "test-node", "test-namespace", false, lvm.DiskSelectionDefaults{}, p, mockLVM, tp)
 			if err != nil {
 				t.Fatal(err)
 			}

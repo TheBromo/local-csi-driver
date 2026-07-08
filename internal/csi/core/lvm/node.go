@@ -133,6 +133,6 @@ func (l *LVM) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeReq
 // any user-specified disk selection parameters; absent parameters fall back
 // to the in-code defaults.
 func (l *LVM) NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, volumeContext map[string]string) error {
-	_, err := l.EnsureVolume(ctx, volumeId, capacity, limit, diskFilterFromParams(volumeContext), true)
+	_, err := l.EnsureVolume(ctx, volumeId, capacity, limit, l.diskFilterFromParams(volumeContext), true)
 	return err
 }

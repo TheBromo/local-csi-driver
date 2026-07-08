@@ -24,12 +24,17 @@ var (
 	DefaultDiskTypes = []string{"disk"}
 )
 
+// Wildcard matches any value when used in a disk selection parameter.
+const Wildcard = "*"
+
 // EphemeralDiskFilter is the default filter for ephemeral disks.
 var EphemeralDiskFilter = NewDiskFilter(nil, nil, nil)
 
 // NewDiskFilter creates a filter matching devices by path prefix, model and
 // type. A device must match all three predicates; within a predicate, any
 // value may match. Empty or nil slices fall back to the package defaults.
+// A Wildcard ("*") value, even mixed with other values, disables the
+// predicate so any device matches it.
 func NewDiskFilter(pathPrefixes, models, types []string) *Filter {
 	if len(pathPrefixes) == 0 {
 		pathPrefixes = DefaultDiskPathPrefixes
@@ -40,13 +45,26 @@ func NewDiskFilter(pathPrefixes, models, types []string) *Filter {
 	if len(types) == 0 {
 		types = DefaultDiskTypes
 	}
-	return &Filter{
-		Filters: []FilterPredicate{
-			NewPathFilter(pathPrefixes...),
-			NewModelFilter(models...),
-			NewTypeFilter(types...),
-		},
+	filter := &Filter{}
+	if !containsWildcard(pathPrefixes) {
+		filter.Filters = append(filter.Filters, NewPathFilter(pathPrefixes...))
 	}
+	if !containsWildcard(models) {
+		filter.Filters = append(filter.Filters, NewModelFilter(models...))
+	}
+	if !containsWildcard(types) {
+		filter.Filters = append(filter.Filters, NewTypeFilter(types...))
+	}
+	return filter
+}
+
+func containsWildcard(values []string) bool {
+	for _, v := range values {
+		if strings.TrimSpace(v) == Wildcard {
+			return true
+		}
+	}
+	return false
 }
 
 // FilterPredicate defines a predicate for filtering devices.

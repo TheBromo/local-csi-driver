@@ -222,6 +222,54 @@ func TestNewDiskFilter(t *testing.T) {
 			device:   block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung"},
 			expected: false,
 		},
+		{
+			name:         "wildcard path matches any path but enforces default models",
+			pathPrefixes: []string{"*"},
+			device:       block.Device{Path: "/dev/xvda", Type: "disk", Model: "Microsoft NVMe Direct Disk"},
+			expected:     true,
+		},
+		{
+			name:         "wildcard path still rejects non-default model",
+			pathPrefixes: []string{"*"},
+			device:       block.Device{Path: "/dev/xvda", Type: "disk", Model: "Samsung"},
+			expected:     false,
+		},
+		{
+			name:         "wildcard models accepts any model",
+			pathPrefixes: []string{"/dev/sd"},
+			models:       []string{"*"},
+			device:       block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung"},
+			expected:     true,
+		},
+		{
+			name:     "wildcard types accepts any type",
+			models:   []string{"Samsung"},
+			types:    []string{"*"},
+			device:   block.Device{Path: "/dev/nvme0n1", Type: "loop", Model: "Samsung"},
+			expected: true,
+		},
+		{
+			name:         "wildcard everywhere matches arbitrary device",
+			pathPrefixes: []string{"*"},
+			models:       []string{"*"},
+			types:        []string{"*"},
+			device:       block.Device{Path: "/dev/weird0", Type: "rom", Model: "Anything"},
+			expected:     true,
+		},
+		{
+			name:         "wildcard mixed with other values disables the predicate",
+			pathPrefixes: []string{"/dev/sd"},
+			models:       []string{"Intel", "*"},
+			device:       block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung"},
+			expected:     true,
+		},
+		{
+			name:         "padded wildcard is recognized",
+			pathPrefixes: []string{"/dev/sd"},
+			models:       []string{" * "},
+			device:       block.Device{Path: "/dev/sda", Type: "disk", Model: "Samsung"},
+			expected:     true,
+		},
 	}
 
 	for _, tt := range tests {

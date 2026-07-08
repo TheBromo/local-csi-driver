@@ -158,8 +158,8 @@ func TestStartupDiagnostic_NoDisks_AllFormattedNVMe(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "1 NVMe disk(s)") {
-			t.Fatalf("expected event to mention '1 NVMe disk(s)', got: %s", event)
+		if !strings.Contains(event, "1 matching disk(s)") {
+			t.Fatalf("expected event to mention '1 matching disk(s)', got: %s", event)
 		}
 		if !strings.Contains(event, "non-LVM filesystem") {
 			t.Fatalf("expected event to mention 'non-LVM filesystem', got: %s", event)
@@ -200,7 +200,7 @@ func TestStartupDiagnostic_NoDisks_NoNVMe(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "No NVMe disks matching the default disk models") {
+		if !strings.Contains(event, "No disks matching the driver's disk selection filters") {
 			t.Fatalf("expected ephemeral OS disk message, got: %s", event)
 		}
 		if !strings.Contains(event, "ephemeral OS disk") {
@@ -268,8 +268,8 @@ func TestStartupDiagnostic_MultipleNVMe_SomeFormatted(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "2 NVMe disk(s)") {
-			t.Fatalf("expected event to mention '2 NVMe disk(s)', got: %s", event)
+		if !strings.Contains(event, "2 matching disk(s)") {
+			t.Fatalf("expected event to mention '2 matching disk(s)', got: %s", event)
 		}
 		if !strings.Contains(event, "1 formatted with a non-LVM filesystem") {
 			t.Fatalf("expected event to mention '1 formatted with a non-LVM filesystem', got: %s", event)

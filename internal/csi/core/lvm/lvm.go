@@ -162,6 +162,7 @@ type LVM struct {
 	podName          string
 	nodeName         string
 	enableCleanup    bool
+	diskDefaults     DiskSelectionDefaults
 	probe            probe.Interface
 	lvm              lvm.Manager
 	tracer           trace.Tracer
@@ -172,7 +173,7 @@ type LVM struct {
 }
 
 // New creates a new LVM volume manager.
-func New(podName, nodeName, releaseNamespace string, enableCleanup bool, probe probe.Interface, lvmMgr lvm.Manager, tp trace.TracerProvider) (*LVM, error) {
+func New(podName, nodeName, releaseNamespace string, enableCleanup bool, diskDefaults DiskSelectionDefaults, probe probe.Interface, lvmMgr lvm.Manager, tp trace.TracerProvider) (*LVM, error) {
 	if podName == "" {
 		return nil, fmt.Errorf("podName must not be empty")
 	}
@@ -187,6 +188,7 @@ func New(podName, nodeName, releaseNamespace string, enableCleanup bool, probe p
 		nodeName:         nodeName,
 		releaseNamespace: releaseNamespace,
 		enableCleanup:    enableCleanup,
+		diskDefaults:     diskDefaults,
 		probe:            probe,
 		lvm:              lvmMgr,
 		tracer:           tp.Tracer("localdisk.csi.acstor.io/internal/csi/api/volume/lvm"),

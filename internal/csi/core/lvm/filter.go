@@ -26,16 +26,53 @@ var (
 	DiskTypesParam = DriverName + "/disk-types"
 )
 
+// DiskSelectionDefaults holds driver-level default disk selection values,
+// typically parsed from driver flags. Empty slices fall back to the probe
+// package defaults. Like the built-in defaults, these are intentionally
+// never persisted in the volume context so they can change between driver
+// deployments without breaking existing persistent volumes.
+type DiskSelectionDefaults struct {
+	PathPrefixes []string
+	Models       []string
+	Types        []string
+}
+
+// NewDiskSelectionDefaults parses comma-separated flag values into disk
+// selection defaults. Empty values keep the built-in defaults.
+func NewDiskSelectionDefaults(pathPrefixes, models, types string) DiskSelectionDefaults {
+	return DiskSelectionDefaults{
+		PathPrefixes: splitParam(pathPrefixes),
+		Models:       splitParam(models),
+		Types:        splitParam(types),
+	}
+}
+
+// Filter returns the disk filter for these defaults, used when no
+// per-volume parameters are available (e.g. the startup diagnostic).
+func (d DiskSelectionDefaults) Filter() *probe.Filter {
+	return probe.NewDiskFilter(d.PathPrefixes, d.Models, d.Types)
+}
+
 // diskFilterFromParams builds a disk filter from StorageClass parameters or
-// PV volume attributes. Absent or empty parameters fall back to the probe
-// package defaults. The defaults are intentionally not persisted in the
-// volume context so they can change between driver versions.
-func diskFilterFromParams(params map[string]string) *probe.Filter {
+// PV volume attributes. Each absent or empty parameter falls back to the
+// driver-level default, and then to the probe package default. Defaults are
+// intentionally not persisted in the volume context so they can change
+// between driver versions.
+func (l *LVM) diskFilterFromParams(params map[string]string) *probe.Filter {
 	return probe.NewDiskFilter(
-		splitParam(params[DiskPathPrefixesParam]),
-		splitParam(params[DiskModelsParam]),
-		splitParam(params[DiskTypesParam]),
+		paramOrDefault(params[DiskPathPrefixesParam], l.diskDefaults.PathPrefixes),
+		paramOrDefault(params[DiskModelsParam], l.diskDefaults.Models),
+		paramOrDefault(params[DiskTypesParam], l.diskDefaults.Types),
 	)
+}
+
+// paramOrDefault splits a parameter value, falling back to the given
+// default when the value has no entries.
+func paramOrDefault(value string, def []string) []string {
+	if v := splitParam(value); v != nil {
+		return v
+	}
+	return def
 }
 
 // splitParam splits a comma-separated parameter value, trimming whitespace
