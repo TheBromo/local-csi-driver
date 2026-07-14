@@ -99,22 +99,35 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 			return nil, fmt.Errorf("failed to check if device is unformatted: %w", err)
 		}
 		if !isFormatted {
-			log.V(3).Info("unformatted device found", "device", device)
-			availableDevices = append(availableDevices, device)
+			if !requiresAdoption(device) {
+				log.V(3).Info("unformatted device found", "device", device)
+				availableDevices = append(availableDevices, device)
+				continue
+			}
+
+			adopted, err := m.adoptDevice(ctx, device)
+			if err != nil {
+				return nil, err
+			}
+			if adopted {
+				log.V(1).Info("partitioned or mounted device adopted for LVM use", "device", device)
+				availableDevices = append(availableDevices, device)
+				continue
+			}
+
+			log.V(3).Info("device has partitions or mountpoints and adoption is disabled, skipping", "device", device)
 			continue
 		}
 
-		isLVM2, err := m.IsLVM2(device.Path)
-		if err != nil {
+		if isLVM2, err := m.IsLVM2(device.Path); err != nil {
 			return nil, fmt.Errorf("failed to check if device is LVM2: %w", err)
-		}
-		if isLVM2 {
+		} else if isLVM2 {
 			log.V(3).Info("device is LVM physical volume, adding to available", "device", device)
 			availableDevices = append(availableDevices, device)
 			continue
 		}
 
-		adopted, err := m.adoptFormattedDevice(ctx, device)
+		adopted, err := m.adoptDevice(ctx, device)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +146,11 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 	return &block.DeviceList{Devices: availableDevices}, nil
 }
 
-func (m *deviceScanner) adoptFormattedDevice(ctx context.Context, device block.Device) (bool, error) {
+func requiresAdoption(device block.Device) bool {
+	return len(device.Children) > 0 || len(device.MountedPaths()) > 0
+}
+
+func (m *deviceScanner) adoptDevice(ctx context.Context, device block.Device) (bool, error) {
 	log := log.FromContext(ctx)
 	switch m.adoptionPolicy {
 	case DiskAdoptionPolicyNone:
@@ -144,13 +161,13 @@ func (m *deviceScanner) adoptFormattedDevice(ctx context.Context, device block.D
 			return true, nil
 		}
 		if errors.Is(err, block.ErrDeviceMounted) {
-			log.V(1).Info("formatted non-LVM device is mounted, skipping adoption", "device", device)
+			log.V(1).Info("device is mounted, skipping adoption", "device", device)
 			return false, nil
 		}
-		return false, fmt.Errorf("failed to adopt formatted device %s: %w", device.Path, err)
+		return false, fmt.Errorf("failed to adopt device %s: %w", device.Path, err)
 	case DiskAdoptionPolicyWipeMounted:
 		if err := m.AdoptDevice(ctx, device, block.AdoptDeviceOptions{AllowMounted: true}); err != nil {
-			return false, fmt.Errorf("failed to adopt formatted device %s: %w", device.Path, err)
+			return false, fmt.Errorf("failed to adopt device %s: %w", device.Path, err)
 		}
 		return true, nil
 	default:

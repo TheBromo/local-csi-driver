@@ -58,6 +58,10 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 	mountedFormattedDevice.Children = []block.Device{
 		{Path: "/dev/sdb1", Type: "part", Mountpoints: []string{"/mnt"}},
 	}
+	partitionedUnmountedDevice := formattedDevice
+	partitionedUnmountedDevice.Children = []block.Device{
+		{Path: "/dev/sdb1", Type: "part"},
+	}
 
 	tests := []struct {
 		name      string
@@ -75,6 +79,52 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 				m.EXPECT().IsFormatted("/dev/sdb").Return(true, nil)
 				m.EXPECT().IsLVM2("/dev/sdb").Return(false, nil)
 			},
+		},
+		{
+			name:   "default skips unformatted parent with mounted child",
+			policy: DiskAdoptionPolicyNone,
+			device: mountedFormattedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+			},
+		},
+		{
+			name:   "unformatted parent without children remains available",
+			policy: DiskAdoptionPolicyNone,
+			device: formattedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+			},
+			wantCount: 1,
+		},
+		{
+			name:   "wipe unmounted adopts unformatted parent with unmounted child",
+			policy: DiskAdoptionPolicyWipeUnmounted,
+			device: partitionedUnmountedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().AdoptDevice(gomock.Any(), partitionedUnmountedDevice, block.AdoptDeviceOptions{AllowMounted: false}).Return(nil)
+			},
+			wantCount: 1,
+		},
+		{
+			name:   "wipe unmounted skips unformatted parent with mounted child",
+			policy: DiskAdoptionPolicyWipeUnmounted,
+			device: mountedFormattedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().AdoptDevice(gomock.Any(), mountedFormattedDevice, block.AdoptDeviceOptions{AllowMounted: false}).Return(block.ErrDeviceMounted)
+			},
+		},
+		{
+			name:   "wipe mounted adopts unformatted parent with mounted child",
+			policy: DiskAdoptionPolicyWipeMounted,
+			device: mountedFormattedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().AdoptDevice(gomock.Any(), mountedFormattedDevice, block.AdoptDeviceOptions{AllowMounted: true}).Return(nil)
+			},
+			wantCount: 1,
 		},
 		{
 			name:   "wipe unmounted adopts unmounted formatted non-lvm device",
