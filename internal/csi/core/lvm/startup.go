@@ -201,7 +201,8 @@ func buildNoDiskMessage(summary deviceSummary) string {
 		return fmt.Sprintf(
 			"No available disks for volume group creation. Found %d matching disk(s) "+
 				"on this node, but all are already formatted with a non-LVM filesystem: %s. "+
-				"Consider adding unformatted local disks to the node.",
+				"Consider adding unformatted local disks to the node, or enabling destructive "+
+				"disk adoption only for disposable disks.",
 			summary.total, formatDeviceList(summary.inUse),
 		)
 	}

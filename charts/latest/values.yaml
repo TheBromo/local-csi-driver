@@ -74,6 +74,12 @@ diskSelection:
   models: []
   # Device types, e.g. ["disk"].
   types: []
+  # Destructive adoption policy for matching formatted non-LVM disks.
+  # Allowed values:
+  # - none: never wipe formatted non-LVM disks.
+  # - wipe-unmounted: wipe matching formatted non-LVM disks only when not mounted.
+  # - wipe-mounted: unmount and wipe matching formatted non-LVM disks.
+  adoptionPolicy: none
 
 # RAID configuration.
 # EXPERIMENTAL: This feature is experimental and may change in future releases.

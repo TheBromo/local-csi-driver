@@ -6,6 +6,7 @@ package block
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -18,11 +19,19 @@ const (
 	// lsblkCommand is the command to list block devices.
 	lsblkCommand = "lsblk"
 	blkidCmd     = "blkid"
+	nsenterCmd   = "nsenter"
+	umountCmd    = "umount"
+	wipefsCmd    = "wipefs"
+	blockdevCmd  = "blockdev"
 	Lvm2Type     = "LVM2_member"
 )
 
 var (
 	blkidTypeRe = regexp.MustCompile(`\bTYPE="([^"]+)"`)
+
+	// ErrDeviceMounted is returned when adopting a formatted device would
+	// require unmounting but the caller did not explicitly allow it.
+	ErrDeviceMounted = errors.New("device is mounted")
 )
 
 // Interface defines the methods that block should implement
@@ -30,9 +39,16 @@ var (
 //go:generate mockgen -copyright_file ../../../hack/mockgen_copyright.txt -destination=mock_block.go -mock_names=Interface=Mock -package=block -source=block.go Interface
 type Interface interface {
 	GetDevices(ctx context.Context) (*DeviceList, error)
+	AdoptDevice(ctx context.Context, device Device, opts AdoptDeviceOptions) error
 	IsBlockDevice(path string) (bool, error)
 	IsFormatted(device string) (bool, error)
 	IsLVM2(device string) (bool, error)
+}
+
+// AdoptDeviceOptions controls how a formatted block device may be prepared for
+// LVM use.
+type AdoptDeviceOptions struct {
+	AllowMounted bool
 }
 
 // block implements the Interface.
@@ -63,6 +79,37 @@ func (l *block) GetDevices(ctx context.Context) (*DeviceList, error) {
 	}
 
 	return parseLsblkOutput(output)
+}
+
+// AdoptDevice removes existing mount and filesystem metadata from a block
+// device so it can be initialized as an LVM physical volume.
+func (l *block) AdoptDevice(ctx context.Context, device Device, opts AdoptDeviceOptions) error {
+	mounts := device.MountedPaths()
+	if len(mounts) > 0 && !opts.AllowMounted {
+		return fmt.Errorf("%w: %s", ErrDeviceMounted, device.Path)
+	}
+
+	for _, mountpoint := range mounts {
+		cmd := l.exec.CommandContext(ctx, nsenterCmd, "--target", "1", "--mount", "--", umountCmd, mountpoint)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to unmount %s for device %s: %w, output: %s", mountpoint, device.Path, err, string(output))
+		}
+	}
+
+	for _, path := range device.DevicePaths() {
+		cmd := l.exec.CommandContext(ctx, wipefsCmd, "--all", "--force", path)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to wipe signatures from %s: %w, output: %s", path, err, string(output))
+		}
+	}
+
+	if device.Path != "" {
+		cmd := l.exec.CommandContext(ctx, blockdevCmd, "--rereadpt", device.Path)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to reread partition table for %s: %w, output: %s", device.Path, err, string(output))
+		}
+	}
+	return nil
 }
 
 // IsBlockDevice reports whether the given path is a block device.

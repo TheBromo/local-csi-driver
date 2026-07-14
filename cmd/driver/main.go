@@ -91,6 +91,7 @@ func main() {
 	var diskPathPrefixes string
 	var diskModels string
 	var diskTypes string
+	var diskAdoptionPolicyValue string
 	flag.StringVar(&nodeName, "node-name", "",
 		"The name of the node this agent is running on.")
 	flag.StringVar(&podName, "pod-name", "",
@@ -142,6 +143,10 @@ func main() {
 	flag.StringVar(&diskTypes, "disk-types", "",
 		"Comma-separated device types used to select disks for volume group creation, e.g. disk. "+
 			"Empty keeps the built-in default (disk). Use * to match any type. StorageClass parameters override this per volume.")
+	flag.StringVar(&diskAdoptionPolicyValue, "disk-adoption-policy", string(probe.DiskAdoptionPolicyNone),
+		"Controls destructive adoption of matching formatted non-LVM disks. "+
+			"Allowed values: none, wipe-unmounted, wipe-mounted. "+
+			"wipe-mounted will unmount matching disks before wiping filesystem and partition signatures.")
 	// Initialize logger flagsconfig.
 	logConfig := textlogger.NewConfig(textlogger.VerbosityFlagName("v"))
 	logConfig.AddFlags(flag.CommandLine)
@@ -251,7 +256,11 @@ func main() {
 	}
 
 	blockDevUtils := block.New()
-	deviceProbe := probe.New(blockDevUtils)
+	diskAdoptionPolicy, err := probe.ParseDiskAdoptionPolicy(diskAdoptionPolicyValue)
+	if err != nil {
+		logAndExit(err, "invalid disk adoption policy")
+	}
+	deviceProbe := probe.New(blockDevUtils, probe.WithDiskAdoptionPolicy(diskAdoptionPolicy))
 
 	// Node-level disk selection defaults from flags. StorageClass parameters
 	// override these per volume.
