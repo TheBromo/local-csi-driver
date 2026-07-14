@@ -214,11 +214,23 @@ func TestAdoptDevice(t *testing.T) {
 			name:    "mounted device rejected unless allowed",
 			opts:    AdoptDeviceOptions{AllowMounted: false},
 			wantErr: ErrDeviceMounted,
+			wantCommand: []scriptedCommand{
+				{
+					cmd:    "lsblk",
+					args:   []string{"--bytes", "--json", "--output-all", "/dev/sdb"},
+					output: deviceTreeJSON(),
+				},
+			},
 		},
 		{
 			name: "mounted device unmounted and wiped when allowed",
 			opts: AdoptDeviceOptions{AllowMounted: true},
 			wantCommand: []scriptedCommand{
+				{
+					cmd:    "lsblk",
+					args:   []string{"--bytes", "--json", "--output-all", "/dev/sdb"},
+					output: deviceTreeJSON(),
+				},
 				{cmd: "nsenter", args: []string{"--target", "1", "--mount", "--", "umount", "/mnt"}},
 				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb1"}},
 				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb"}},
@@ -245,18 +257,24 @@ func TestAdoptDevice(t *testing.T) {
 }
 
 type scriptedCommand struct {
-	cmd  string
-	args []string
+	cmd    string
+	args   []string
+	output []byte
 }
 
 func newFakeExec(t *testing.T, commands []scriptedCommand) *fakeexec.FakeExec {
 	t.Helper()
 
-	fakeExec := &fakeexec.FakeExec{ExactOrder: true}
+	fakeExec := &fakeexec.FakeExec{
+		ExactOrder: true,
+		LookPathFunc: func(file string) (string, error) {
+			return file, nil
+		},
+	}
 	for _, command := range commands {
 		fakeCmd := &fakeexec.FakeCmd{
 			CombinedOutputScript: []fakeexec.FakeAction{
-				func() ([]byte, []byte, error) { return nil, nil, nil },
+				func() ([]byte, []byte, error) { return command.output, nil, nil },
 			},
 		}
 		fakeExec.CommandScript = append(fakeExec.CommandScript, func(cmd string, args ...string) utilexec.Cmd {
@@ -267,4 +285,27 @@ func newFakeExec(t *testing.T, commands []scriptedCommand) *fakeexec.FakeExec {
 		})
 	}
 	return fakeExec
+}
+
+func deviceTreeJSON() []byte {
+	return []byte(`{
+		"blockdevices": [
+			{
+				"name": "sdb",
+				"path": "/dev/sdb",
+				"type": "disk",
+				"size": 1546188226560,
+				"mountpoints": [null],
+				"children": [
+					{
+						"name": "sdb1",
+						"path": "/dev/sdb1",
+						"type": "part",
+						"size": 1546186129408,
+						"mountpoints": ["/mnt"]
+					}
+				]
+			}
+		]
+	}`)
 }

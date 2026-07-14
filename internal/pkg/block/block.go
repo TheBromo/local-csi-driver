@@ -38,6 +38,7 @@ var (
 //
 //go:generate mockgen -copyright_file ../../../hack/mockgen_copyright.txt -destination=mock_block.go -mock_names=Interface=Mock -package=block -source=block.go Interface
 type Interface interface {
+	GetDevice(ctx context.Context, path string) (*Device, error)
 	GetDevices(ctx context.Context) (*DeviceList, error)
 	AdoptDevice(ctx context.Context, device Device, opts AdoptDeviceOptions) error
 	IsBlockDevice(path string) (bool, error)
@@ -81,9 +82,41 @@ func (l *block) GetDevices(ctx context.Context) (*DeviceList, error) {
 	return parseLsblkOutput(output)
 }
 
+func (l *block) GetDevice(ctx context.Context, path string) (*Device, error) {
+	if path == "" {
+		return nil, fmt.Errorf("device path is required")
+	}
+
+	_, err := l.exec.LookPath(lsblkCommand)
+	if err != nil {
+		return nil, fmt.Errorf("unable to find %s in PATH: %w", lsblkCommand, err)
+	}
+
+	cmd := l.exec.CommandContext(ctx, lsblkCommand, "--bytes", "--json", "--output-all", path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("command failed: %w, output: %s", err, string(output))
+	}
+
+	devices, err := parseLsblkOutput(output)
+	if err != nil {
+		return nil, err
+	}
+	if len(devices.Devices) != 1 {
+		return nil, fmt.Errorf("expected one device for %s, got %d", path, len(devices.Devices))
+	}
+	return &devices.Devices[0], nil
+}
+
 // AdoptDevice removes existing mount and filesystem metadata from a block
 // device so it can be initialized as an LVM physical volume.
 func (l *block) AdoptDevice(ctx context.Context, device Device, opts AdoptDeviceOptions) error {
+	refreshed, err := l.GetDevice(ctx, device.Path)
+	if err != nil {
+		return fmt.Errorf("failed to refresh device tree for %s: %w", device.Path, err)
+	}
+	device = *refreshed
+
 	mounts := device.MountedPaths()
 	if len(mounts) > 0 && !opts.AllowMounted {
 		return fmt.Errorf("%w: %s", ErrDeviceMounted, device.Path)
