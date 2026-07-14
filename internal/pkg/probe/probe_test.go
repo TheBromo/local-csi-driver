@@ -70,6 +70,7 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 		expect    func(*block.Mock)
 		wantErr   bool
 		wantCount int
+		wantAdopt bool
 	}{
 		{
 			name:   "default skips formatted non-lvm device",
@@ -106,6 +107,7 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 				m.EXPECT().AdoptDevice(gomock.Any(), partitionedUnmountedDevice, block.AdoptDeviceOptions{AllowMounted: false}).Return(nil)
 			},
 			wantCount: 1,
+			wantAdopt: true,
 		},
 		{
 			name:   "wipe unmounted skips unformatted parent with mounted child",
@@ -125,6 +127,7 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 				m.EXPECT().AdoptDevice(gomock.Any(), mountedFormattedDevice, block.AdoptDeviceOptions{AllowMounted: true}).Return(nil)
 			},
 			wantCount: 1,
+			wantAdopt: true,
 		},
 		{
 			name:   "wipe unmounted adopts unmounted formatted non-lvm device",
@@ -136,6 +139,7 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 				m.EXPECT().AdoptDevice(gomock.Any(), formattedDevice, block.AdoptDeviceOptions{AllowMounted: false}).Return(nil)
 			},
 			wantCount: 1,
+			wantAdopt: true,
 		},
 		{
 			name:   "wipe unmounted skips mounted formatted non-lvm device",
@@ -157,6 +161,7 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 				m.EXPECT().AdoptDevice(gomock.Any(), mountedFormattedDevice, block.AdoptDeviceOptions{AllowMounted: true}).Return(nil)
 			},
 			wantCount: 1,
+			wantAdopt: true,
 		},
 		{
 			name:   "adoption error fails scan",
@@ -199,6 +204,9 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 			}
 			if len(got.Devices) != tt.wantCount {
 				t.Fatalf("ScanAvailableDevices() returned %d devices, want %d", len(got.Devices), tt.wantCount)
+			}
+			if got.Devices[0].Adopted != tt.wantAdopt {
+				t.Fatalf("ScanAvailableDevices() returned adopted=%v, want %v", got.Devices[0].Adopted, tt.wantAdopt)
 			}
 		})
 	}

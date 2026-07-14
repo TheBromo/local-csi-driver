@@ -16,6 +16,7 @@ type Device struct {
 	Serial      string   `json:"serial,omitempty"`
 	Size        int64    `json:"size,omitempty"`
 	Children    []Device `json:"children,omitempty"`
+	Adopted     bool     `json:"adopted,omitempty"`
 }
 
 // DeviceList represents the output of the lsblk command.

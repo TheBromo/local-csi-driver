@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"local-csi-driver/internal/csi/core"
+	"local-csi-driver/internal/pkg/block"
 	"local-csi-driver/internal/pkg/events"
 	"local-csi-driver/internal/pkg/lvm"
 	"local-csi-driver/internal/pkg/probe"
@@ -377,7 +378,7 @@ func (l *LVM) EnsurePhysicalVolumes(ctx context.Context, vgName string, filter *
 
 	pvs := make([]string, 0, len(devices.Devices))
 	for _, d := range devices.Devices {
-		pv, err := l.ensurePhysicalVolume(ctx, d.Path)
+		pv, err := l.ensurePhysicalVolume(ctx, d)
 		if err != nil {
 			log.Error(err, "failed to ensure physical volume", "device", d.Path)
 			span.SetStatus(codes.Error, "failed to ensure physical volume")
@@ -400,47 +401,53 @@ func (l *LVM) EnsurePhysicalVolumes(ctx context.Context, vgName string, filter *
 	return pvs, nil
 }
 
-func (l *LVM) ensurePhysicalVolume(ctx context.Context, device string) (*lvm.PhysicalVolume, error) {
-	log := log.FromContext(ctx).WithValues("pv", device)
+func (l *LVM) ensurePhysicalVolume(ctx context.Context, device block.Device) (*lvm.PhysicalVolume, error) {
+	devicePath := device.Path
+	log := log.FromContext(ctx).WithValues("pv", devicePath)
 	recorder := events.FromContext(ctx)
 	ctx, span := l.tracer.Start(ctx, "volume.lvm.csi/ensurePhysicalVolume", trace.WithAttributes(
-		attribute.String("vol.pv", device),
+		attribute.String("vol.pv", devicePath),
 	))
 	defer span.End()
-	if device == "" {
-		log.Error(fmt.Errorf("device path is required"), "device", device)
+	if devicePath == "" {
+		log.Error(fmt.Errorf("device path is required"), "device", devicePath)
 		span.SetStatus(codes.Error, "device path is required")
 		return nil, fmt.Errorf("device path is required")
 	}
 
-	pv, err := l.lvm.GetPhysicalVolume(ctx, device)
+	pv, err := l.lvm.GetPhysicalVolume(ctx, devicePath)
 	if lvm.IgnoreNotFound(err) != nil {
 		span.SetStatus(codes.Error, "failed to get physical volume")
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to get physical volume %s: %w", device, err)
+		return nil, fmt.Errorf("failed to get physical volume %s: %w", devicePath, err)
 	}
 	if pv != nil {
 		log.V(1).Info("physical volume already exists")
 		return pv, nil
 	}
 	pvCreateOptions := lvm.CreatePVOptions{
-		Name: device,
+		Name: devicePath,
+	}
+	if device.Adopted {
+		pvCreateOptions.Yes = true
+		pvCreateOptions.Force = true
+		pvCreateOptions.Zero = lvm.Yes
 	}
 	if err := l.lvm.CreatePhysicalVolume(ctx, pvCreateOptions); lvm.IgnoreAlreadyExists(err) != nil {
 		log.Error(err, "failed to create physical volume")
 		span.SetStatus(codes.Error, "failed to create physical volume")
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to create physical volume on device %s: %w", device, err)
+		return nil, fmt.Errorf("failed to create physical volume on device %s: %w", devicePath, err)
 	}
 
 	if !errors.Is(err, lvm.ErrAlreadyExists) {
-		recorder.Eventf(corev1.EventTypeNormal, provisionedPhysicalVolume, "Successfully provisioned physical volume on device %s", device)
+		recorder.Eventf(corev1.EventTypeNormal, provisionedPhysicalVolume, "Successfully provisioned physical volume on device %s", devicePath)
 	}
 
-	if pv, err = l.lvm.GetPhysicalVolume(ctx, device); err != nil {
+	if pv, err = l.lvm.GetPhysicalVolume(ctx, devicePath); err != nil {
 		span.SetStatus(codes.Error, "failed to get physical volume after creation")
 		span.RecordError(err)
-		return nil, fmt.Errorf("failed to get physical volume %s after creation: %w", device, err)
+		return nil, fmt.Errorf("failed to get physical volume %s after creation: %w", devicePath, err)
 	}
 	return pv, nil
 }

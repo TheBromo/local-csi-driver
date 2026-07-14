@@ -196,6 +196,7 @@ func TestGetNodeDevice(t *testing.T) {
 func TestEnsurePhysicalVolumes(t *testing.T) {
 	t.Parallel()
 	devices := &block.DeviceList{Devices: []block.Device{{Path: "/dev/pv1"}, {Path: "/dev/pv2"}}}
+	adoptedDevices := &block.DeviceList{Devices: []block.Device{{Path: "/dev/pv1", Adopted: true}}}
 	testVg := "testVg"
 	otherVg := "otherVg"
 	tests := []struct {
@@ -246,6 +247,24 @@ func TestEnsurePhysicalVolumes(t *testing.T) {
 				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv2").Return(&lvmMgr.PhysicalVolume{Name: "/dev/pv2"}, nil).Times(1)
 			},
 			expectedPaths: []string{"/dev/pv1", "/dev/pv2"},
+			expectedErr:   nil,
+		},
+		{
+			name: "adopted physical volume uses force options",
+			expectProbe: func(p *probe.Mock) {
+				p.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(adoptedDevices, nil)
+			},
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(nil, lvmMgr.ErrNotFound).Times(1)
+				m.EXPECT().CreatePhysicalVolume(gomock.Any(), lvmMgr.CreatePVOptions{
+					Name:  "/dev/pv1",
+					Yes:   true,
+					Force: true,
+					Zero:  lvmMgr.Yes,
+				}).Return(nil).Times(1)
+				m.EXPECT().GetPhysicalVolume(gomock.Any(), "/dev/pv1").Return(&lvmMgr.PhysicalVolume{Name: "/dev/pv1"}, nil).Times(1)
+			},
+			expectedPaths: []string{"/dev/pv1"},
 			expectedErr:   nil,
 		},
 		{

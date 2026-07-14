@@ -231,12 +231,10 @@ func (c *Client) CreatePhysicalVolume(ctx context.Context, opts CreatePVOptions)
 		return nil
 	}
 
-	if formatted {
+	if formatted && !opts.Force {
 		return fmt.Errorf("%w: %s is already formatted", ErrInUse, opts.Name)
 	}
 
-	// We won't provide --yes to the pvcreate command as we want to confirm the creation of the PV.
-	// This can be dangerous in production environments, as it overwrites existing filesystem.
 	marshaledOpts := args.Marshal(opts)
 	cmdArgs := make([]string, 0, 1+len(marshaledOpts))
 	cmdArgs = append(cmdArgs, "pvcreate")

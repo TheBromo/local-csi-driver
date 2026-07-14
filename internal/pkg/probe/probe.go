@@ -111,6 +111,7 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 			}
 			if adopted {
 				log.V(1).Info("partitioned or mounted device adopted for LVM use", "device", device)
+				device.Adopted = true
 				availableDevices = append(availableDevices, device)
 				continue
 			}
@@ -133,6 +134,7 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 		}
 		if adopted {
 			log.V(1).Info("formatted non-LVM device adopted for LVM use", "device", device)
+			device.Adopted = true
 			availableDevices = append(availableDevices, device)
 			continue
 		}

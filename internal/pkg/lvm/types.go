@@ -150,6 +150,7 @@ type ListPVOptions struct {
 type CreatePVOptions struct {
 	CommonOptions
 	Name                  string `arg:"0"`                     // Device or PV to create.
+	Yes                   bool   `arg:"yes"`                   // Answer yes to all prompts.
 	Force                 bool   `arg:"force"`                 // Override checks and protections.
 	UUID                  string `arg:"uuid"`                  // Specific UUID for the device.
 	Zero                  *YesNo `arg:"zero"`                  // Wipe first 4 sectors of the device unless RestoreFile or UUID is given.
