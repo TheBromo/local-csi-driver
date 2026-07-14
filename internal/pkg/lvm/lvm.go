@@ -852,6 +852,40 @@ func (c *Client) run(ctx context.Context, cmdArgs ...string) ([]byte, error) {
 	return c.runCmd(ctx, "lvm/run", c.lvmPath, cmdArgs...)
 }
 
+type lvmCommandError struct {
+	err      error
+	stderr   string
+	cmdArgs  []string
+	exitCode int
+}
+
+func newLVMCommandError(err error, stderr string, cmdArgs []string) *lvmCommandError {
+	exitCode := -1
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	}
+	copiedArgs := make([]string, len(cmdArgs))
+	copy(copiedArgs, cmdArgs)
+	return &lvmCommandError{
+		err:      err,
+		stderr:   strings.TrimSpace(stderr),
+		cmdArgs:  copiedArgs,
+		exitCode: exitCode,
+	}
+}
+
+func (e *lvmCommandError) Error() string {
+	if e.stderr == "" {
+		return e.err.Error()
+	}
+	return fmt.Sprintf("%s: %s", e.err, e.stderr)
+}
+
+func (e *lvmCommandError) Unwrap() error {
+	return e.err
+}
+
 func (c *Client) runCmd(ctx context.Context, spanName, binary string, cmdArgs ...string) ([]byte, error) {
 	ctx, span := c.tracer.Start(ctx, spanName, trace.WithAttributes(
 		attribute.String("cmd.name", binary),
@@ -876,7 +910,7 @@ func (c *Client) runCmd(ctx context.Context, spanName, binary string, cmdArgs ..
 	if err := cmd.Run(); err != nil {
 		// Let caller decide whether to set span status to error since it may retry.
 		span.RecordError(err)
-		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+		return nil, newLVMCommandError(err, stderr.String(), cmdArgs)
 	}
 
 	span.SetStatus(codes.Ok, "command succeeded")
@@ -903,6 +937,8 @@ func getErrorType(err error) error {
 	case containsIgnoreCase(err.Error(), "failed to find"),
 		containsIgnoreCase(err.Error(), "not found"):
 		return fmt.Errorf("%w: %s", ErrNotFound, err.Error())
+	case isReportCommandNotFound(err):
+		return fmt.Errorf("%w: %s", ErrNotFound, err.Error())
 	case containsIgnoreCase(err.Error(), "contains a filesystem in use"):
 		return fmt.Errorf("%w: %s", ErrInUse, err.Error())
 	case containsIgnoreCase(err.Error(), "already exists in filesystem"):
@@ -920,6 +956,22 @@ func getErrorType(err error) error {
 		return fmt.Errorf("%w: %s", ErrInUse, err.Error())
 	default:
 		return err
+	}
+}
+
+func isReportCommandNotFound(err error) bool {
+	var cmdErr *lvmCommandError
+	if !errors.As(err, &cmdErr) {
+		return false
+	}
+	if cmdErr.exitCode != 5 || len(cmdErr.cmdArgs) == 0 {
+		return false
+	}
+	switch cmdErr.cmdArgs[0] {
+	case "pvs", "vgs", "lvs":
+		return true
+	default:
+		return false
 	}
 }
 
