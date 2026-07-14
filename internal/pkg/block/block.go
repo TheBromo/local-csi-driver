@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"syscall"
 
 	utilexec "k8s.io/utils/exec"
@@ -24,6 +25,8 @@ const (
 	wipefsCmd    = "wipefs"
 	blockdevCmd  = "blockdev"
 	Lvm2Type     = "LVM2_member"
+
+	partitionRereadBusyOutput = "BLKRRPART: Device or resource busy"
 )
 
 var (
@@ -139,10 +142,18 @@ func (l *block) AdoptDevice(ctx context.Context, device Device, opts AdoptDevice
 	if device.Path != "" {
 		cmd := l.exec.CommandContext(ctx, blockdevCmd, "--rereadpt", device.Path)
 		if output, err := cmd.CombinedOutput(); err != nil {
+			if isPartitionRereadBusy(output, err) {
+				return nil
+			}
 			return fmt.Errorf("failed to reread partition table for %s: %w, output: %s", device.Path, err, string(output))
 		}
 	}
 	return nil
+}
+
+func isPartitionRereadBusy(output []byte, err error) bool {
+	exit, ok := err.(utilexec.ExitError)
+	return ok && exit.ExitStatus() == 1 && strings.Contains(string(output), partitionRereadBusyOutput)
 }
 
 // IsBlockDevice reports whether the given path is a block device.

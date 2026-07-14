@@ -197,6 +197,7 @@ func TestDevicePaths(t *testing.T) {
 func TestAdoptDevice(t *testing.T) {
 	t.Parallel()
 
+	errUnexpectedReread := errors.New("unexpected reread failure")
 	device := Device{
 		Path: "/dev/sdb",
 		Children: []Device{
@@ -237,6 +238,47 @@ func TestAdoptDevice(t *testing.T) {
 				{cmd: "blockdev", args: []string{"--rereadpt", "/dev/sdb"}},
 			},
 		},
+		{
+			name: "busy partition reread is tolerated after wiping",
+			opts: AdoptDeviceOptions{AllowMounted: true},
+			wantCommand: []scriptedCommand{
+				{
+					cmd:    "lsblk",
+					args:   []string{"--bytes", "--json", "--output-all", "/dev/sdb"},
+					output: deviceTreeJSON(),
+				},
+				{cmd: "nsenter", args: []string{"--target", "1", "--mount", "--", "umount", "/mnt"}},
+				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb1"}},
+				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb"}},
+				{
+					cmd:    "blockdev",
+					args:   []string{"--rereadpt", "/dev/sdb"},
+					output: []byte("blockdev: ioctl error on BLKRRPART: Device or resource busy\n"),
+					err:    &fakeexec.FakeExitError{Status: 1},
+				},
+			},
+		},
+		{
+			name:    "unexpected partition reread failure is returned",
+			opts:    AdoptDeviceOptions{AllowMounted: true},
+			wantErr: errUnexpectedReread,
+			wantCommand: []scriptedCommand{
+				{
+					cmd:    "lsblk",
+					args:   []string{"--bytes", "--json", "--output-all", "/dev/sdb"},
+					output: deviceTreeJSON(),
+				},
+				{cmd: "nsenter", args: []string{"--target", "1", "--mount", "--", "umount", "/mnt"}},
+				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb1"}},
+				{cmd: "wipefs", args: []string{"--all", "--force", "/dev/sdb"}},
+				{
+					cmd:    "blockdev",
+					args:   []string{"--rereadpt", "/dev/sdb"},
+					output: []byte("blockdev: permission denied\n"),
+					err:    errUnexpectedReread,
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -260,6 +302,7 @@ type scriptedCommand struct {
 	cmd    string
 	args   []string
 	output []byte
+	err    error
 }
 
 func newFakeExec(t *testing.T, commands []scriptedCommand) *fakeexec.FakeExec {
@@ -274,7 +317,7 @@ func newFakeExec(t *testing.T, commands []scriptedCommand) *fakeexec.FakeExec {
 	for _, command := range commands {
 		fakeCmd := &fakeexec.FakeCmd{
 			CombinedOutputScript: []fakeexec.FakeAction{
-				func() ([]byte, []byte, error) { return command.output, nil, nil },
+				func() ([]byte, []byte, error) { return command.output, nil, command.err },
 			},
 		}
 		fakeExec.CommandScript = append(fakeExec.CommandScript, func(cmd string, args ...string) utilexec.Cmd {
