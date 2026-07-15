@@ -12,19 +12,19 @@ import (
 func TestPathFilter(t *testing.T) {
 	tests := []struct {
 		name     string
-		path     string
+		paths    []string
 		device   block.Device
 		expected bool
 	}{
 		{
 			name:     "match path prefix",
-			path:     "/dev/sd",
+			paths:    []string{"/dev/sd"},
 			device:   block.Device{Path: "/dev/sda"},
 			expected: true,
 		},
 		{
 			name:     "no match path prefix",
-			path:     "/dev/sd",
+			paths:    []string{"/dev/sd"},
 			device:   block.Device{Path: "/dev/nvme0n1"},
 			expected: false,
 		},
@@ -32,7 +32,7 @@ func TestPathFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filter := &PathFilter{Path: tt.path}
+			filter := &PathFilters{Paths: tt.paths}
 			result := filter.Match(tt.device)
 			if result != tt.expected {
 				t.Errorf("Match(%v) = %v, want %v", tt.device, result, tt.expected)
@@ -121,7 +121,7 @@ func TestFilter(t *testing.T) {
 		{
 			name: "all filters match",
 			filters: []FilterPredicate{
-				&PathFilter{Path: "/dev/sd"},
+				&PathFilters{Paths: []string{"/dev/sd"}},
 				&TypeFilter{Type: "SSD"},
 				NewModelFilter("Samsung", "Samsung v2"),
 			},
@@ -131,7 +131,7 @@ func TestFilter(t *testing.T) {
 		{
 			name: "one filter does not match",
 			filters: []FilterPredicate{
-				&PathFilter{Path: "/dev/sd"},
+				&PathFilters{Paths: []string{"/dev/sd"}},
 				&TypeFilter{Type: "SSD"},
 				NewModelFilter("Intel"),
 			},

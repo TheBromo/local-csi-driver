@@ -4,6 +4,7 @@
 package probe
 
 import (
+	"slices"
 	"strings"
 
 	"local-csi-driver/internal/pkg/block"
@@ -12,7 +13,7 @@ import (
 // EphemeralDiskFilter is a filter for ephemeral disks.
 var EphemeralDiskFilter = &Filter{
 	Filters: []FilterPredicate{
-		&PathFilter{Path: "/dev/nvme"},
+		&PathFilters{Paths: []string{"/dev/nvme"}},
 		NewModelFilter("Microsoft NVMe Direct Disk", "Microsoft NVMe Direct Disk v2"),
 		&TypeFilter{Type: "disk"},
 	},
@@ -37,13 +38,15 @@ func (f *Filter) Match(device block.Device) bool {
 	return true
 }
 
-// PathFilter matches devices by path prefix.
-type PathFilter struct {
-	Path string
+// PathFilters matches devices by path prefixes.
+type PathFilters struct {
+	Paths []string
 }
 
-func (f *PathFilter) Match(device block.Device) bool {
-	return strings.HasPrefix(device.Path, f.Path)
+func (f *PathFilters) Match(device block.Device) bool {
+	return slices.ContainsFunc(f.Paths, func(path string) bool {
+		return strings.HasPrefix(device.Path, path)
+	})
 }
 
 // TypeFilter matches devices by type.
