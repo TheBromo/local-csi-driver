@@ -90,6 +90,15 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 			},
 		},
 		{
+			name:   "default skips unformatted parent with stale child",
+			policy: DiskAdoptionPolicyNone,
+			device: partitionedUnmountedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().IsFormatted("/dev/sdb1").Return(false, nil)
+			},
+		},
+		{
 			name:   "unformatted parent without children remains available",
 			policy: DiskAdoptionPolicyNone,
 			device: formattedDevice,
@@ -99,12 +108,24 @@ func TestScanAvailableDevicesAdoptionPolicy(t *testing.T) {
 			wantCount: 1,
 		},
 		{
-			name:   "wipe unmounted adopts unformatted parent with unmounted child",
+			name:   "wipe unmounted adopts unformatted parent with formatted child",
 			policy: DiskAdoptionPolicyWipeUnmounted,
 			device: partitionedUnmountedDevice,
 			expect: func(m *block.Mock) {
 				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().IsFormatted("/dev/sdb1").Return(true, nil)
 				m.EXPECT().AdoptDevice(gomock.Any(), partitionedUnmountedDevice, block.AdoptDeviceOptions{AllowMounted: false}).Return(nil)
+			},
+			wantCount: 1,
+			wantAdopt: true,
+		},
+		{
+			name:   "wipe unmounted returns stale child without adopting again",
+			policy: DiskAdoptionPolicyWipeUnmounted,
+			device: partitionedUnmountedDevice,
+			expect: func(m *block.Mock) {
+				m.EXPECT().IsFormatted("/dev/sdb").Return(false, nil)
+				m.EXPECT().IsFormatted("/dev/sdb1").Return(false, nil)
 			},
 			wantCount: 1,
 			wantAdopt: true,

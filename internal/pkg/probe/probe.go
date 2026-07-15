@@ -99,8 +99,21 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 			return nil, fmt.Errorf("failed to check if device is unformatted: %w", err)
 		}
 		if !isFormatted {
-			if !requiresAdoption(device) {
-				log.V(3).Info("unformatted device found", "device", device)
+			needsAdoption, err := m.requiresAdoption(device)
+			if err != nil {
+				return nil, err
+			}
+			if !needsAdoption {
+				if len(device.Children) > 0 {
+					if m.adoptionPolicy == DiskAdoptionPolicyNone {
+						log.V(3).Info("device has stale child devices and adoption is disabled, skipping", "device", device)
+						continue
+					}
+					log.V(3).Info("unformatted device has stale child devices, adding to available", "device", device)
+					device.Adopted = true
+				} else {
+					log.V(3).Info("unformatted device found", "device", device)
+				}
 				availableDevices = append(availableDevices, device)
 				continue
 			}
@@ -148,8 +161,33 @@ func (m *deviceScanner) ScanAvailableDevices(ctx context.Context, filter *Filter
 	return &block.DeviceList{Devices: availableDevices}, nil
 }
 
-func requiresAdoption(device block.Device) bool {
-	return len(device.Children) > 0 || len(device.MountedPaths()) > 0
+func (m *deviceScanner) requiresAdoption(device block.Device) (bool, error) {
+	if len(device.MountedPaths()) > 0 {
+		return true, nil
+	}
+	return m.hasFormattedChild(device)
+}
+
+func (m *deviceScanner) hasFormattedChild(device block.Device) (bool, error) {
+	for _, child := range device.Children {
+		if child.Path != "" {
+			formatted, err := m.IsFormatted(child.Path)
+			if err != nil {
+				return false, fmt.Errorf("failed to check if child device is formatted: %w", err)
+			}
+			if formatted {
+				return true, nil
+			}
+		}
+		formatted, err := m.hasFormattedChild(child)
+		if err != nil {
+			return false, err
+		}
+		if formatted {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (m *deviceScanner) adoptDevice(ctx context.Context, device block.Device) (bool, error) {
