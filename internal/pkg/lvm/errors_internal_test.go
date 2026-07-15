@@ -79,6 +79,99 @@ func TestGetErrorType(t *testing.T) {
 	}
 }
 
+func TestGetErrorTypeLVMCommandError(t *testing.T) {
+	t.Parallel()
+
+	errExitStatus5 := errors.New("exit status 5")
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{
+			name: "vgs exit status 5 is not found",
+			err: &lvmCommandError{
+				err:      errExitStatus5,
+				cmdArgs:  []string{"vgs", "--reportformat=json", "containerstorage"},
+				exitCode: 5,
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name: "lvs exit status 5 is not found",
+			err: &lvmCommandError{
+				err:      errExitStatus5,
+				cmdArgs:  []string{"lvs", "--reportformat=json", "containerstorage/missing-lv"},
+				exitCode: 5,
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name: "pvs exit status 5 is not found",
+			err: &lvmCommandError{
+				err:      errExitStatus5,
+				cmdArgs:  []string{"pvs", "--reportformat=json", "/dev/missing"},
+				exitCode: 5,
+			},
+			wantErr: ErrNotFound,
+		},
+		{
+			name: "vgcreate exit status 5 passes through",
+			err: &lvmCommandError{
+				err:      errExitStatus5,
+				cmdArgs:  []string{"vgcreate", "containerstorage", "/dev/sdb"},
+				exitCode: 5,
+			},
+		},
+		{
+			name: "vgs different exit code passes through",
+			err: &lvmCommandError{
+				err:      errors.New("exit status 3"),
+				cmdArgs:  []string{"vgs", "--reportformat=json", "containerstorage"},
+				exitCode: 3,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := getErrorType(tt.err)
+			if tt.wantErr == nil {
+				if got != tt.err {
+					t.Fatalf("expected passthrough error %v, got %v", tt.err, got)
+				}
+				return
+			}
+			if !errors.Is(got, tt.wantErr) {
+				t.Fatalf("expected error to wrap %v, got %v", tt.wantErr, got)
+			}
+		})
+	}
+}
+
+func TestLVMCommandError(t *testing.T) {
+	t.Parallel()
+
+	errCommand := errors.New("exit status 5")
+	cmdArgs := []string{"vgs", "vg0"}
+	err := newLVMCommandError(errCommand, "  Volume group \"vg0\" not found\n", cmdArgs)
+	if !errors.Is(err, errCommand) {
+		t.Fatalf("expected command error to wrap %v, got %v", errCommand, err)
+	}
+	if err.Error() != "exit status 5: Volume group \"vg0\" not found" {
+		t.Fatalf("unexpected error string: %q", err.Error())
+	}
+	if err.exitCode != -1 {
+		t.Fatalf("exitCode = %d, want -1 for non-exec error", err.exitCode)
+	}
+	cmdArgs[0] = "mutated"
+	if err.cmdArgs[0] != "vgs" {
+		t.Fatalf("cmdArgs were not copied: %v", err.cmdArgs)
+	}
+}
+
 // Ensure the sentinel errors remain distinct.
 func TestStaleDeviceNodeDistinctFromAlreadyExists(t *testing.T) {
 	wrapped := fmt.Errorf("%w: detail", ErrStaleDeviceNode)

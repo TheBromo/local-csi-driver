@@ -56,7 +56,7 @@ type NodeInterface interface {
 	GetNodeDriverCapabilities() []*csi.NodeServiceCapability
 	GetNodeDevicePath(volumeId string) (string, error)
 	NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error)
-	NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64) error
+	NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, volumeContext map[string]string) error
 	GetVolumeName(volumeId string) (string, error)
 	// NodeStage(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error)
 	// NodeUnstage(ctx context.Context, req *csi.NodeUnstageVolumeRequest) (*csi.NodeUnstageVolumeResponse, error)

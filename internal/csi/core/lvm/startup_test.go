@@ -40,7 +40,7 @@ func TestStartupDiagnostic_DisksAvailable(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(&block.DeviceList{
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(&block.DeviceList{
 		Devices: []block.Device{
 			{Path: "/dev/nvme1n1", Model: "Microsoft NVMe Direct Disk", Size: 500 * 1024 * 1024 * 1024, Type: "disk"},
 		},
@@ -92,7 +92,7 @@ func TestStartupDiagnostic_DisksAvailable_NoInUse(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(&block.DeviceList{
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(&block.DeviceList{
 		Devices: []block.Device{
 			{Path: "/dev/nvme0n1", Model: "Microsoft NVMe Direct Disk", Size: 500 * 1024 * 1024 * 1024, Type: "disk"},
 		},
@@ -133,7 +133,7 @@ func TestStartupDiagnostic_NoDisks_AllFormattedNVMe(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(&block.DeviceList{
@@ -158,8 +158,8 @@ func TestStartupDiagnostic_NoDisks_AllFormattedNVMe(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "1 NVMe disk(s)") {
-			t.Fatalf("expected event to mention '1 NVMe disk(s)', got: %s", event)
+		if !strings.Contains(event, "1 matching disk(s)") {
+			t.Fatalf("expected event to mention '1 matching disk(s)', got: %s", event)
 		}
 		if !strings.Contains(event, "non-LVM filesystem") {
 			t.Fatalf("expected event to mention 'non-LVM filesystem', got: %s", event)
@@ -178,7 +178,7 @@ func TestStartupDiagnostic_NoDisks_NoNVMe(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(&block.DeviceList{
@@ -200,7 +200,7 @@ func TestStartupDiagnostic_NoDisks_NoNVMe(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "No NVMe disks matching the expected model") {
+		if !strings.Contains(event, "No disks matching the driver's disk selection filters") {
 			t.Fatalf("expected ephemeral OS disk message, got: %s", event)
 		}
 		if !strings.Contains(event, "ephemeral OS disk") {
@@ -217,7 +217,7 @@ func TestStartupDiagnostic_ScanError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, fmt.Errorf("scan failed"))
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("scan failed"))
 
 	mockBlock := block.NewMock(ctrl)
 	recorder := kevents.NewFakeRecorder(10)
@@ -242,7 +242,7 @@ func TestStartupDiagnostic_MultipleNVMe_SomeFormatted(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(&block.DeviceList{
@@ -268,8 +268,8 @@ func TestStartupDiagnostic_MultipleNVMe_SomeFormatted(t *testing.T) {
 		if !strings.HasPrefix(event, expectedWarningPrefix) {
 			t.Fatalf("expected Warning event, got: %s", event)
 		}
-		if !strings.Contains(event, "2 NVMe disk(s)") {
-			t.Fatalf("expected event to mention '2 NVMe disk(s)', got: %s", event)
+		if !strings.Contains(event, "2 matching disk(s)") {
+			t.Fatalf("expected event to mention '2 matching disk(s)', got: %s", event)
 		}
 		if !strings.Contains(event, "1 formatted with a non-LVM filesystem") {
 			t.Fatalf("expected event to mention '1 formatted with a non-LVM filesystem', got: %s", event)
@@ -293,7 +293,7 @@ func TestStartupDiagnostic_GetDevicesError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(nil, fmt.Errorf("lsblk failed"))
@@ -323,7 +323,7 @@ func TestStartupDiagnostic_IsFormattedError(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(&block.DeviceList{
@@ -357,7 +357,7 @@ func TestStartupDiagnostic_IsLVM2Error(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockProbe := probe.NewMock(ctrl)
-	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
+	mockProbe.EXPECT().ScanAvailableDevices(gomock.Any(), gomock.Any()).Return(nil, probe.ErrNoDevicesFound)
 
 	mockBlock := block.NewMock(ctrl)
 	mockBlock.EXPECT().GetDevices(gomock.Any()).Return(&block.DeviceList{

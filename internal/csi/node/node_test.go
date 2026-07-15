@@ -144,8 +144,9 @@ func initTestNodeServer(_ *testing.T, ctrl *gomock.Controller) *Server {
 							Driver:       driverName,
 							VolumeHandle: recoveryOKVolumeID,
 							VolumeAttributes: map[string]string{
-								selectedInitialNodeParam:           "test-node",
-								"localdisk.csi.acstor.io/capacity": "1Gi",
+								selectedInitialNodeParam:              "test-node",
+								"localdisk.csi.acstor.io/capacity":    "1Gi",
+								"localdisk.csi.acstor.io/disk-models": "Samsung SSD",
 							},
 						},
 					},
@@ -788,6 +789,57 @@ func TestNodeStageVolume(t *testing.T) {
 				return
 			}
 		})
+	}
+}
+
+// TestNodeStageVolumeForwardsVolumeAttributes verifies the PV recovery path
+// passes the PV's volume attributes (including disk selection parameters) to
+// NodeEnsureVolume so the node can rebuild the volume group from the disks
+// the user selected.
+func TestNodeStageVolumeForwardsVolumeAttributes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mntDir, err := os.MkdirTemp(os.TempDir(), "mount")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer func() {
+		if err := os.RemoveAll(mntDir); err != nil {
+			t.Errorf("failed to remove tmp dir: %v", err)
+		}
+	}()
+
+	ns := initTestNodeServer(t, ctrl)
+	m := ns.mounter.(*mounter.MockMounter)
+	stagingPath := filepath.Join(mntDir, validStagingPath)
+	m.EXPECT().IsLikelyNotMountPoint(gomock.Eq(stagingPath)).Return(true, nil).Times(1)
+	m.EXPECT().FormatAndMountSensitiveWithFormatOptions("/vg/testrecoveryok", stagingPath, "ext4", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(1)
+
+	req := &csi.NodeStageVolumeRequest{
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{
+					FsType: "ext4",
+				},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: 2},
+		},
+		VolumeId:          recoveryOKVolumeID,
+		StagingTargetPath: stagingPath,
+		VolumeContext:     map[string]string{},
+	}
+
+	if _, err := ns.NodeStageVolume(context.Background(), req); err != nil {
+		t.Fatalf("NodeStageVolume() error = %v", err)
+	}
+
+	forwarded := ns.volume.(*core.Fake).NodeEnsureVolumeContext
+	if forwarded == nil {
+		t.Fatal("expected volume attributes to be forwarded to NodeEnsureVolume")
+	}
+	if got := forwarded["localdisk.csi.acstor.io/disk-models"]; got != "Samsung SSD" {
+		t.Errorf("expected disk-models attribute to be forwarded, got %q", got)
 	}
 }
 

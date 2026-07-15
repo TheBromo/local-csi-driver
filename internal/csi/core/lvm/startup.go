@@ -63,17 +63,17 @@ func (s *StartupDiagnostic) Start(ctx context.Context) error {
 	log := log.FromContext(ctx).WithName("startup-diagnostic")
 
 	// Check if there are any available disks.
-	devices, err := s.probe.ScanAvailableDevices(ctx)
+	devices, err := s.probe.ScanAvailableDevices(ctx, s.filter)
 	if err != nil && !errors.Is(err, probe.ErrNoDevicesFound) {
 		log.Error(err, "failed to scan for available devices during startup diagnostic")
 		return nil
 	}
 
-	// Scan all NVMe devices on the node to build a full picture.
-	summary := s.scanNVMeDevices(ctx)
+	// Scan all devices matching the filter on the node to build a full picture.
+	summary := s.scanMatchingDevices(ctx)
 
 	if devices == nil || len(devices.Devices) == 0 {
-		log.Info("no available disks found", "totalNVMeDisks", summary.total, "nonLVM2FormattedDisks", summary.nonLVM2Formatted)
+		log.Info("no available disks found", "totalMatchingDisks", summary.total, "nonLVM2FormattedDisks", summary.nonLVM2Formatted)
 		msg := buildNoDiskMessage(summary)
 		s.recorder.Eventf(s.pod, nil, corev1.EventTypeWarning, noDiskAvailable, noDiskAvailable, msg)
 		return nil
@@ -90,7 +90,7 @@ func (s *StartupDiagnostic) NeedLeaderElection() bool {
 	return false
 }
 
-// deviceSummary holds the results of scanning all NVMe devices on the node.
+// deviceSummary holds the results of scanning all matching devices on the node.
 type deviceSummary struct {
 	total            int
 	nonLVM2Formatted int
@@ -98,9 +98,9 @@ type deviceSummary struct {
 	inUse            []block.Device
 }
 
-// scanNVMeDevices scans all block devices and categorizes NVMe devices
+// scanMatchingDevices scans all block devices and categorizes the devices
 // matching the filter. Returns a summary with device lists.
-func (s *StartupDiagnostic) scanNVMeDevices(ctx context.Context) deviceSummary {
+func (s *StartupDiagnostic) scanMatchingDevices(ctx context.Context) deviceSummary {
 	log := log.FromContext(ctx).WithName("startup-diagnostic")
 
 	allDevices, err := s.block.GetDevices(ctx)
@@ -122,7 +122,7 @@ func (s *StartupDiagnostic) scanNVMeDevices(ctx context.Context) deviceSummary {
 			continue
 		}
 		if !isFormatted {
-			log.V(1).Info("NVMe device found (unformatted)", "path", d.Path, "model", d.Model, "size", d.Size)
+			log.V(1).Info("matching device found (unformatted)", "path", d.Path, "model", d.Model, "size", d.Size)
 			summary.available = append(summary.available, d)
 			continue
 		}
@@ -133,13 +133,13 @@ func (s *StartupDiagnostic) scanNVMeDevices(ctx context.Context) deviceSummary {
 			continue
 		}
 		if isLVM2 {
-			log.V(1).Info("NVMe device found (LVM2, part of a volume group)", "path", d.Path, "model", d.Model, "size", d.Size)
+			log.V(1).Info("matching device found (LVM2, part of a volume group)", "path", d.Path, "model", d.Model, "size", d.Size)
 			summary.available = append(summary.available, d)
 			continue
 		}
 
 		summary.nonLVM2Formatted++
-		log.V(1).Info("NVMe device found (formatted, non-LVM2)", "path", d.Path, "model", d.Model, "size", d.Size)
+		log.V(1).Info("matching device found (formatted, non-LVM2)", "path", d.Path, "model", d.Model, "size", d.Size)
 		summary.inUse = append(summary.inUse, d)
 	}
 
@@ -186,24 +186,29 @@ func buildDiskDiscoveryMessage(available []block.Device, summary deviceSummary) 
 // available, with diagnostic context and remediation advice.
 func buildNoDiskMessage(summary deviceSummary) string {
 	if summary.total == 0 {
-		return "No NVMe disks matching the expected model (Microsoft NVMe Direct Disk) " +
-			"were found on this node. This can happen when the node pool uses a VM SKU " +
-			"with ephemeral OS disk enabled, which consumes the NVMe disk for the OS. " +
-			"Consider using a VM SKU with additional NVMe disks, or disable " +
-			"ephemeral OS disk on the node pool."
+		return fmt.Sprintf("No disks matching the driver's disk selection filters "+
+			"(default models: %s) were found on this node. On Azure, this can happen "+
+			"when the node pool uses a VM SKU with ephemeral OS disk enabled, which "+
+			"consumes the NVMe disk for the OS. Consider using a VM SKU with "+
+			"additional local disks, disabling ephemeral OS disk on the node pool, or "+
+			"adjusting the disk selection via driver flags or StorageClass parameters. "+
+			"Disks matching custom StorageClass disk selection parameters may still be "+
+			"picked up at provisioning time.",
+			strings.Join(probe.DefaultDiskModels, ", "))
 	}
 
 	if summary.nonLVM2Formatted == summary.total {
 		return fmt.Sprintf(
-			"No available disks for volume group creation. Found %d NVMe disk(s) "+
+			"No available disks for volume group creation. Found %d matching disk(s) "+
 				"on this node, but all are already formatted with a non-LVM filesystem: %s. "+
-				"Consider using a VM SKU with additional NVMe disks.",
+				"Consider adding unformatted local disks to the node, or enabling destructive "+
+				"disk adoption only for disposable disks.",
 			summary.total, formatDeviceList(summary.inUse),
 		)
 	}
 
 	return fmt.Sprintf(
-		"No available disks for volume group creation. Found %d NVMe disk(s) "+
+		"No available disks for volume group creation. Found %d matching disk(s) "+
 			"on this node (%d formatted with a non-LVM filesystem, %d unformatted or already "+
 			"in a volume group), but none are newly available for volume group creation.",
 		summary.total, summary.nonLVM2Formatted, summary.total-summary.nonLVM2Formatted,

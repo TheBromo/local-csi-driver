@@ -88,6 +88,10 @@ func main() {
 	var enableLVMOrphanCleanup bool
 	var lvmOrphanCleanupInterval time.Duration
 	var runAlongsideWebhook bool
+	var diskPathPrefixes string
+	var diskModels string
+	var diskTypes string
+	var diskAdoptionPolicyValue string
 	flag.StringVar(&nodeName, "node-name", "",
 		"The name of the node this agent is running on.")
 	flag.StringVar(&podName, "pod-name", "",
@@ -129,6 +133,20 @@ func main() {
 		"Interval for the LVM orphan cleanup controller to scan and clean up orphaned volumes.")
 	flag.BoolVar(&runAlongsideWebhook, "run-alongside-webhook", false,
 		"If set, indicates that the driver is running alongside a separate webhook deployment. This affects PV node affinity behavior.")
+	flag.StringVar(&diskPathPrefixes, "disk-path-prefixes", "",
+		"Comma-separated device path prefixes used to select disks for volume group creation, e.g. /dev/nvme,/dev/sd. "+
+			"Empty keeps the built-in default (/dev/nvme). Use * to match any path. StorageClass parameters override this per volume.")
+	flag.StringVar(&diskModels, "disk-models", "",
+		"Comma-separated disk models used to select disks for volume group creation, e.g. Microsoft NVMe Direct Disk. "+
+			"Empty keeps the built-in defaults (Microsoft NVMe Direct Disk, Microsoft NVMe Direct Disk v2). Use * to match any model. "+
+			"StorageClass parameters override this per volume.")
+	flag.StringVar(&diskTypes, "disk-types", "",
+		"Comma-separated device types used to select disks for volume group creation, e.g. disk. "+
+			"Empty keeps the built-in default (disk). Use * to match any type. StorageClass parameters override this per volume.")
+	flag.StringVar(&diskAdoptionPolicyValue, "disk-adoption-policy", string(probe.DiskAdoptionPolicyNone),
+		"Controls destructive adoption of matching formatted non-LVM disks. "+
+			"Allowed values: none, wipe-unmounted, wipe-mounted. "+
+			"wipe-mounted will unmount matching disks before wiping filesystem and partition signatures.")
 	// Initialize logger flagsconfig.
 	logConfig := textlogger.NewConfig(textlogger.VerbosityFlagName("v"))
 	logConfig.AddFlags(flag.CommandLine)
@@ -237,10 +255,16 @@ func main() {
 		logAndExit(err, "failed to initialize raid")
 	}
 
-	// TODO(sc): move filter to controller so we can read filters from
-	// storageclass params. Hardcoded for now.
 	blockDevUtils := block.New()
-	deviceProbe := probe.New(blockDevUtils, probe.EphemeralDiskFilter)
+	diskAdoptionPolicy, err := probe.ParseDiskAdoptionPolicy(diskAdoptionPolicyValue)
+	if err != nil {
+		logAndExit(err, "invalid disk adoption policy")
+	}
+	deviceProbe := probe.New(blockDevUtils, probe.WithDiskAdoptionPolicy(diskAdoptionPolicy))
+
+	// Node-level disk selection defaults from flags. StorageClass parameters
+	// override these per volume.
+	diskDefaults := lvm.NewDiskSelectionDefaults(diskPathPrefixes, diskModels, diskTypes)
 
 	// Create the LVM manager.
 	// LVM manager is an abstraction that understands how to create and
@@ -254,7 +278,7 @@ func main() {
 	//
 	// Volume client is an abstraction that understands csi requests and
 	// responses and how to implement them for a storage type.
-	volumeClient, err := lvm.New(podName, nodeName, namespace, enableCleanup, deviceProbe, lvmMgr, tp)
+	volumeClient, err := lvm.New(podName, nodeName, namespace, enableCleanup, diskDefaults, deviceProbe, lvmMgr, tp)
 	if err != nil {
 		logAndExit(err, "unable to create lvm volume client")
 	}
@@ -276,7 +300,7 @@ func main() {
 
 	// Run startup diagnostic to check disk availability and emit a Warning
 	// event on the pod if no disks are available for volume group creation.
-	startupDiag := lvm.NewStartupDiagnostic(deviceProbe, blockDevUtils, probe.EphemeralDiskFilter, recorder, selfPod)
+	startupDiag := lvm.NewStartupDiagnostic(deviceProbe, blockDevUtils, diskDefaults.Filter(), recorder, selfPod)
 	if err := mgr.Add(startupDiag); err != nil {
 		logAndExit(err, "unable to add startup diagnostic to manager")
 	}

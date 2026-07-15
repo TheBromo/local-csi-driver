@@ -129,8 +129,10 @@ func (l *LVM) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeReq
 }
 
 // NodeEnsureVolume ensures that the volume exists on the node.
-// It will create the volume if it does not exist.
-func (l *LVM) NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64) error {
-	_, err := l.EnsureVolume(ctx, volumeId, capacity, limit, true)
+// It will create the volume if it does not exist. The volume context carries
+// any user-specified disk selection parameters; absent parameters fall back
+// to the in-code defaults.
+func (l *LVM) NodeEnsureVolume(ctx context.Context, volumeId string, capacity int64, limit int64, volumeContext map[string]string) error {
+	_, err := l.EnsureVolume(ctx, volumeId, capacity, limit, l.diskFilterFromParams(volumeContext), true)
 	return err
 }

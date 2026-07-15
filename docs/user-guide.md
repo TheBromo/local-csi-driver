@@ -113,9 +113,95 @@ kubectl apply -f storageclass.yaml
 
 The local-csi-driver supports several optional parameters in the StorageClass:
 
-| Parameter                               | Description                                               | Values                       | Default                              |
-|-----------------------------------------|-----------------------------------------------------------|------------------------------|--------------------------------------|
-| `localdisk.csi.acstor.io/failover-mode` | Controls pod scheduling behavior in hyperconverged setups | `availability`, `durability` | Not set (defaults to `availability`) |
+| Parameter                                    | Description                                               | Values                       | Default                                                    |
+|----------------------------------------------|-----------------------------------------------------------|------------------------------|------------------------------------------------------------|
+| `localdisk.csi.acstor.io/failover-mode`      | Controls pod scheduling behavior in hyperconverged setups | `availability`, `durability` | Not set (defaults to `availability`)                       |
+| `localdisk.csi.acstor.io/disk-path-prefixes` | Prefix of the disk path                                   | Comma-separated prefixes, or `*` | `/dev/nvme`                                                |
+| `localdisk.csi.acstor.io/disk-models`        | Model of the disk                                         | Comma-separated models, or `*`   | `Microsoft NVMe Direct Disk,Microsoft NVMe Direct Disk v2` |
+| `localdisk.csi.acstor.io/disk-types`         | Type of the disk (e.g. `disk`, `loop`)                    | Comma-separated types, or `*`    | `disk`                                                     |
+
+#### Disk Selection
+
+The three `disk-*` parameters control which disks are used to create the LVM
+volume group. A disk is selected only if it matches **all** of the specified
+parameters; within a parameter, matching **any** of the comma-separated values
+is sufficient. A value of `*` matches anything for that parameter. Any
+parameter that is omitted (or left empty) falls back to its default value,
+which works for local NVMe disks on Azure VMs.
+
+Because the parameters are combined with AND semantics, selecting non-NVMe
+disks (e.g. SATA/SCSI `/dev/sd*` devices) requires overriding
+`disk-models` as well — the default models only match Azure NVMe direct
+disks. Use `disk-models: "*"` to accept any model, or list your disks'
+model strings (as reported by `lsblk -o PATH,MODEL,TYPE`).
+
+Example StorageClass that selects NVMe and SATA/SCSI disks of any model:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local
+provisioner: localdisk.csi.acstor.io
+parameters:
+  localdisk.csi.acstor.io/disk-path-prefixes: /dev/nvme,/dev/sd
+  localdisk.csi.acstor.io/disk-models: "*"
+  localdisk.csi.acstor.io/disk-types: disk
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+```
+
+The defaults can also be changed for the whole installation, so every
+StorageClass without explicit `disk-*` parameters uses your values: set
+`diskSelection.pathPrefixes`, `diskSelection.models` and/or
+`diskSelection.types` in the Helm chart (wired to the driver's
+`--disk-path-prefixes`, `--disk-models` and `--disk-types` flags). The
+precedence per parameter is: StorageClass parameter, then driver flag, then
+built-in default.
+
+> [!NOTE]
+> The disk selection parameters only take effect when the volume group is
+> first created on a node. If two StorageClasses use the same volume group
+> name with different disk selection parameters, the parameters of whichever
+> StorageClass provisions first on a node win. Disks that are already
+> formatted with a non-LVM filesystem are skipped unless destructive disk
+> adoption is explicitly enabled.
+
+#### Reusing Formatted Local Disks
+
+By default, the driver never uses a disk that is formatted with a non-LVM
+filesystem. This prevents accidental data loss when a node image, cloud-init, or
+an administrator has mounted a disk such as the Azure resource disk at `/mnt`.
+
+If those disks are intentionally disposable, enable destructive adoption with
+the Helm value `diskSelection.adoptionPolicy`:
+
+- `none`: default; formatted non-LVM disks are skipped.
+- `wipe-unmounted`: matching formatted non-LVM disks are wiped only when they
+  are not mounted.
+- `wipe-mounted`: matching formatted non-LVM disks are unmounted and wiped.
+
+For an Azure resource disk exposed as `/dev/sdb` with `/dev/sdb1` mounted at
+`/mnt`, use all of the following so the disk matches the node-level selector and
+can be reclaimed:
+
+```yaml
+diskSelection:
+  pathPrefixes:
+    - /dev/sd
+  models:
+    - "*"
+  types:
+    - disk
+  adoptionPolicy: wipe-mounted
+```
+
+`wipe-mounted` removes filesystem and partition signatures from matching disks
+and their child partitions. Use it only on node pools where the matched disks
+are disposable. It does not edit the node's `/etc/fstab`; if the node image or
+cloud-init remounts and reformats the same disk on reboot, fix that node
+bootstrap configuration or keep this policy enabled for that disposable node
+pool.
 
 #### Failover Modes
 

@@ -44,6 +44,35 @@ func (m *Mock) EXPECT() *MockMockRecorder {
 	return m.recorder
 }
 
+// AdoptDevice mocks base method.
+func (m *Mock) AdoptDevice(ctx context.Context, device Device, opts AdoptDeviceOptions) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AdoptDevice", ctx, device, opts)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AdoptDevice indicates an expected call of AdoptDevice.
+func (mr *MockMockRecorder) AdoptDevice(ctx, device, opts any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AdoptDevice", reflect.TypeOf((*Mock)(nil).AdoptDevice), ctx, device, opts)
+}
+
+// GetDevice mocks base method.
+func (m *Mock) GetDevice(ctx context.Context, path string) (*Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevice", ctx, path)
+	ret0, _ := ret[0].(*Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevice indicates an expected call of GetDevice.
+func (mr *MockMockRecorder) GetDevice(ctx, path any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*Mock)(nil).GetDevice), ctx, path)
+}
+
 // GetDevices mocks base method.
 func (m *Mock) GetDevices(ctx context.Context) (*DeviceList, error) {
 	m.ctrl.T.Helper()

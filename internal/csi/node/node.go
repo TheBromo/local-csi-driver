@@ -430,7 +430,7 @@ func (ns *Server) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeR
 			return nil, status.Error(codes.Internal, err.Error())
 		}
 
-		if err := ns.volume.NodeEnsureVolume(ctx, req.GetVolumeId(), capacityBytes, limitBytes); err != nil {
+		if err := ns.volume.NodeEnsureVolume(ctx, req.GetVolumeId(), capacityBytes, limitBytes, pv.Spec.CSI.VolumeAttributes); err != nil {
 			log.Error(err, "failed to publish volume")
 			span.SetStatus(otcodes.Error, "failed to publish volume")
 			span.RecordError(err)

@@ -49,8 +49,13 @@ and their default values.
 | `daemonset.nodeSelector`                      | Node selector for the DaemonSet. If empty, all nodes are selected.                                                                                                          |                                                                                                                          |
 | `daemonset.tolerations`                       | Tolerations for the DaemonSet. If empty, no tolerations are applied.                                                                                                        | <code>- effect: NoSchedule<br>&nbsp;&nbsp;operator: Exists<br>- effect: NoExecute<br>&nbsp;&nbsp;operator: Exists</code> |
 | `daemonset.serviceAccount.annotations`        | Annotations for the service account. If empty, no annotations are applied.                                                                                                  |                                                                                                                          |
-| `raid.enabled`                                | **EXPERIMENTAL**: Enables mdadm RAID 0 setup. Combines unused NVMe devices into a RAID 0 array with LVM on top. When disabled, LVM raid is used. Migration not supported.   | `false`                                                                                                                  |
+| `diskSelection.pathPrefixes`                  | Node-level default device path prefixes for disk selection (e.g. `["/dev/nvme", "/dev/sd"]`). Empty keeps the built-in default (`/dev/nvme`). `"*"` matches any path. StorageClass parameters override per volume.  |                                                                                                                          |
+| `diskSelection.models`                        | Node-level default disk models for disk selection. Empty keeps the built-in defaults (`Microsoft NVMe Direct Disk`, `Microsoft NVMe Direct Disk v2`). Use `["*"]` to accept any model.                              |                                                                                                                          |
+| `diskSelection.types`                         | Node-level default device types for disk selection. Empty keeps the built-in default (`disk`). `"*"` matches any type.                                                                                              |                                                                                                                          |
+| `diskSelection.adoptionPolicy`                | Destructive adoption policy for matching formatted non-LVM disks. `none` skips them, `wipe-unmounted` wipes only unmounted disks, and `wipe-mounted` unmounts and wipes matching disks.                           | `none`                                                                                                                   |
+| `raid.enabled`                                | **EXPERIMENTAL**: Enables mdadm RAID 0 setup. Combines unused local devices into a RAID 0 array with LVM on top. When disabled, LVM raid is used. Migration not supported.  | `false`                                                                                                                  |
 | `raid.volumeGroup`                            | The volume group name to create on the RAID device. Must match the `volumeGroup` parameter in StorageClass if using a custom name.                                          | `containerstorage`                                                                                                       |
+| `raid.devicePaths`                            | Glob patterns for candidate devices for the RAID array / volume group (e.g. add `/dev/sd*` for SATA/SCSI disks).                                                            | `["/dev/nvme*n*"]`                                                                                                       |
 | `cleanup.enabled`                             | Cleanup volume groups and physical volumes on pod termination if logical volumes are not in use.                                                                            | `true`                                                                                                                   |
 | `cleanup.lvGarbageCollection.enabled`         | Enable event-driven LV garbage collection for node annotation mismatches.                                                                                                   | `true`                                                                                                                   |
 | `cleanup.lvmOrphanCleanup.enabled`            | Enable periodic LVM orphan cleanup scanning.                                                                                                                                | `true`                                                                                                                   |
@@ -82,7 +87,7 @@ and their default values.
 ## RAID Configuration
 
 The local-csi-driver supports automatic RAID 0 array creation via mdadm for
-improved performance when multiple NVMe devices are available on a node. This
+improved performance when multiple local devices are available on a node. This
 feature is controlled by the `raid.enabled` parameter.
 
 ### Enabling RAID
@@ -101,8 +106,10 @@ helm install local-csi-driver oci://localcsidriver.azurecr.io/acstor/charts/loca
 When `raid.enabled=true`, an init container runs on each node before the CSI
 driver starts:
 
-1. **Device Discovery**: Scans for unused NVMe devices (devices not mounted, not
-   in use by LVM, and without existing RAID metadata)
+1. **Device Discovery**: Scans for unused devices matching the `raid.devicePaths`
+   glob patterns (default `/dev/nvme*n*`; devices not mounted, not in use by
+   LVM, and without existing RAID metadata). Add patterns such as `/dev/sd*`
+   to include SATA/SCSI disks.
 2. **Single Device**: If only one unused device is found, it creates an LVM
    volume group directly on that device
 3. **Multiple Devices**: If two or more unused devices are found:
@@ -151,7 +158,8 @@ for certain workloads.
 
 ### Requirements
 
-- Two or more unused NVMe devices on the node (or one device for single-disk setup)
+- Two or more unused devices matching `raid.devicePaths` on the node (or one
+  device for single-disk setup)
 - Node must support either `tdnf` or `apt-get` package manager for mdadm installation
 - Sufficient privileges for the init container (runs as root with privileged mode)
 
