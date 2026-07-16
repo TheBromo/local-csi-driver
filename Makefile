@@ -205,7 +205,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 ##@ Build
 
 .PHONY: build
-build: build-driver build-manager ## Build driver and manager binaries.
+build: build-driver build-manager build-nodeprep ## Build driver, manager, and node preparation binaries.
 
 .PHONY: build-driver
 build-driver: fmt fix vet ## Build driver binary.
@@ -214,6 +214,10 @@ build-driver: fmt fix vet ## Build driver binary.
 .PHONY: build-manager
 build-manager: fmt fix vet ## Build manager binary.
 	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-manager cmd/manager/main.go
+
+.PHONY: build-nodeprep
+build-nodeprep: fmt fix vet ## Build node preparation binary.
+	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-nodeprep cmd/nodeprep/main.go
 
 .PHONY: run
 run: fmt fix vet ## Run the local CSI driver from your host.

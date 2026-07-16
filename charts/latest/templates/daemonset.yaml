@@ -1,3 +1,6 @@
+{{- if and .Values.nodePrep.enabled .Values.raid.enabled }}
+{{- fail "nodePrep.enabled and raid.enabled are mutually exclusive because both prepare the local-csi volume group" }}
+{{- end }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -36,8 +39,40 @@ spec:
     spec:
       affinity:
         {{- include "chart.nodeAffinity" . | nindent 8 }}
-      {{- if .Values.raid.enabled }}
+      {{- if or .Values.nodePrep.enabled .Values.raid.enabled }}
       initContainers:
+      {{- if .Values.nodePrep.enabled }}
+      - name: node-preparation
+        args:
+        - --resource-disk={{ .Values.nodePrep.resourceDisk }}
+        - --resource-disk-required={{ .Values.nodePrep.resourceDiskRequired }}
+        - --volume-group={{ .Values.nodePrep.volumeGroup }}
+        - --volume-group-tag={{ .Values.nodePrep.volumeGroupTag }}
+        - --cloud-init-timeout={{ .Values.nodePrep.cloudInitTimeout }}
+        - --host-etc-path=/host/etc
+        - --v={{ .Values.observability.driver.log.level }}
+        command:
+        - /local-csi-nodeprep
+        {{- if hasPrefix "/" .Values.image.driver.repository }}
+        image: "{{ .Values.image.baseRepo }}{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
+        {{- else }}
+        image: "{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.driver.pullPolicy }}
+        resources: {{- toYaml .Values.resources.nodePrep | nindent 10 }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+        terminationMessagePath: /tmp/termination-log
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /dev
+          name: device
+        - mountPath: /host/etc
+          name: host-etc
+          readOnly: false
+      {{- end }}
+      {{- if .Values.raid.enabled }}
       - name: raid
         {{- if hasPrefix "/" .Values.image.driver.repository }}
         image: "{{ .Values.image.baseRepo }}{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
@@ -65,6 +100,7 @@ spec:
         securityContext:
           runAsUser: 0
           privileged: true
+      {{- end }}
       {{- end }}
 
       containers:
@@ -299,6 +335,12 @@ spec:
           path: /dev
           type: Directory
         name: device
+      {{- if .Values.nodePrep.enabled }}
+      - hostPath:
+          path: /etc
+          type: Directory
+        name: host-etc
+      {{- end }}
       - hostPath:
           path: /var/lib/kubelet/plugins/localdisk.csi.acstor.io/
           type: DirectoryOrCreate
