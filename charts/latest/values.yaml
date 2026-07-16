@@ -78,6 +78,23 @@ raid:
   # StorageClass in the `VolumeGroup` parameter.
   volumeGroup: containerstorage
 
+# Azure resource-disk node preparation.
+# This is mutually exclusive with raid.enabled because both workflows own the
+# configured LVM volume group.
+nodePrep:
+  # Run the resource-disk preparation init container before the CSI driver.
+  enabled: false
+  # Stable Azure resource-disk link in the host /dev tree.
+  resourceDisk: /dev/disk/azure/resource
+  # Fail nodes without the stable link. When false, missing links are a no-op.
+  resourceDiskRequired: false
+  # Volume group created on or verified against the resource disk.
+  volumeGroup: containerstorage
+  # Ownership tag required on an existing volume group.
+  volumeGroupTag: local-csi
+  # Maximum time to wait for cloud-init to finish.
+  cloudInitTimeout: 5m
+
 # Garbage collection and cleanup configuration.
 cleanup:
   # Cleanup volume groups and physical volumes on pod termination if logical volume are not in use.
@@ -198,6 +215,12 @@ manager:
 
 # Resource configuration.
 resources:
+  nodePrep:
+    limits:
+      memory: 100Mi
+    requests:
+      cpu: 10m
+      memory: 20Mi
   driver:
     limits:
       memory: 600Mi
