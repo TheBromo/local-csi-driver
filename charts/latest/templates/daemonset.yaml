@@ -73,6 +73,9 @@ spec:
         - mountPath: /host/etc
           name: host-etc
           readOnly: false
+        - mountPath: /host/run
+          name: host-run
+          readOnly: false
       {{- end }}
       {{- if .Values.raid.enabled }}
       - name: raid
