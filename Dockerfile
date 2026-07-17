@@ -46,6 +46,11 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=1 GOEXPERIMENT=systemcrypto GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -v -ldflags "${LDFLAGS}" -o local-csi-driver cmd/driver/main.go
 
+# Node preparation binary for the optional Azure resource disk init container.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOEXPERIMENT=systemcrypto GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -v -ldflags "${LDFLAGS}" -o local-csi-nodeprep cmd/nodeprep/main.go
+
 
 # Generate NOTICE.txt from dependency licenses. Built in parallel with `builder`.
 FROM mcr.microsoft.com/oss/go/microsoft/golang:1.26-azurelinux3.0@sha256:1c77c1cbb5de52db3f119fe2efe7a938e734c08196bbe3ad94b3bdadbab926f9 AS notice
@@ -81,6 +86,7 @@ RUN tdnf install -y --releasever 3.0 --installroot /staging \
 FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0@sha256:576d9769c0146cbf0cf7946bacf536c5758464c29eadfa03ef5090ae708e641f
 WORKDIR /
 COPY --from=builder /workspace/local-csi-driver .
+COPY --from=builder /workspace/local-csi-nodeprep .
 COPY --from=dependency-install /staging /
 COPY --from=notice /workspace/NOTICE.txt /
 

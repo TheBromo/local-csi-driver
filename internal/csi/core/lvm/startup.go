@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -14,6 +15,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"local-csi-driver/internal/pkg/block"
+	lvmMgr "local-csi-driver/internal/pkg/lvm"
+	"local-csi-driver/internal/pkg/nodeprep"
 	"local-csi-driver/internal/pkg/probe"
 )
 
@@ -21,6 +24,8 @@ const (
 	// Startup diagnostic event reasons.
 	noDiskAvailable       = "NoDiskAvailable"
 	diskDiscoveryComplete = "DiskDiscoveryComplete"
+	volumeGroupReady      = "VolumeGroupReady"
+	volumeGroupNotReady   = "VolumeGroupNotReady"
 )
 
 // StartupDiagnostic runs a one-time disk availability check when the pod starts
@@ -33,6 +38,16 @@ type StartupDiagnostic struct {
 	filter   *probe.Filter
 	recorder kevents.EventRecorder
 	pod      *corev1.Pod
+
+	// preconfiguredVG, when set, switches the diagnostic to prepared mode:
+	// instead of scanning for NVMe disks it verifies the volume group
+	// created by node preparation is visible, tagged and backed by the
+	// Azure resource disk, and fails driver startup otherwise.
+	preconfiguredVG string
+	lvm             lvmMgr.Manager
+	// resolveLink resolves the Azure resource disk link inside the driver
+	// container. Overridable in tests.
+	resolveLink func(string) (string, error)
 }
 
 // NewStartupDiagnostic creates a new StartupDiagnostic instance.
@@ -49,18 +64,40 @@ func NewStartupDiagnostic(
 	pod *corev1.Pod,
 ) *StartupDiagnostic {
 	return &StartupDiagnostic{
-		probe:    p,
-		block:    b,
-		filter:   filter,
-		recorder: recorder,
-		pod:      pod,
+		probe:       p,
+		block:       b,
+		filter:      filter,
+		recorder:    recorder,
+		pod:         pod,
+		resolveLink: filepath.EvalSymlinks,
 	}
+}
+
+// WithPreconfiguredVolumeGroup switches the diagnostic to prepared mode: the
+// volume group created by node preparation is verified instead of scanning
+// for NVMe disks. resolveLink may be nil to use the default symlink
+// resolution; it is injectable for tests.
+func (s *StartupDiagnostic) WithPreconfiguredVolumeGroup(vgName string, manager lvmMgr.Manager, resolveLink func(string) (string, error)) *StartupDiagnostic {
+	s.preconfiguredVG = vgName
+	s.lvm = manager
+	if resolveLink != nil {
+		s.resolveLink = resolveLink
+	}
+	return s
 }
 
 // Start implements manager.Runnable. It performs the disk availability check
 // once at startup and emits a Kubernetes event on the pod with the results.
+//
+// In prepared mode (preconfiguredVG set) it verifies the preconfigured
+// volume group instead and returns an error to fail driver startup when the
+// volume group is not usable from the driver container.
 func (s *StartupDiagnostic) Start(ctx context.Context) error {
 	log := log.FromContext(ctx).WithName("startup-diagnostic")
+
+	if s.preconfiguredVG != "" {
+		return s.verifyPreconfiguredVolumeGroup(ctx)
+	}
 
 	// Check if there are any available disks.
 	devices, err := s.probe.ScanAvailableDevices(ctx)
@@ -87,6 +124,85 @@ func (s *StartupDiagnostic) Start(ctx context.Context) error {
 
 // NeedLeaderElection returns false since the diagnostic should run on every node.
 func (s *StartupDiagnostic) NeedLeaderElection() bool {
+	return false
+}
+
+// verifyPreconfiguredVolumeGroup checks that the volume group prepared on
+// the host is visible from the driver container's LVM environment, carries
+// the ownership tag, and is backed by the Azure resource disk. It returns
+// an error to fail startup when host preparation succeeded but the volume
+// group is unusable from the container.
+func (s *StartupDiagnostic) verifyPreconfiguredVolumeGroup(ctx context.Context) error {
+	log := log.FromContext(ctx).WithName("startup-diagnostic")
+
+	vg, err := s.lvm.GetVolumeGroup(ctx, s.preconfiguredVG)
+	if lvmMgr.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("failed to look up preconfigured volume group %s: %w", s.preconfiguredVG, err)
+	}
+
+	resourceDisk, linkErr := s.resolveLink(nodeprep.DefaultResourceDiskLink)
+
+	if vg == nil {
+		if linkErr != nil {
+			// No resource disk on this node and node preparation was
+			// configured as optional: report and continue without failing.
+			msg := fmt.Sprintf("Preconfigured volume group %s not found and no Azure resource disk is present on this node. "+
+				"Volume provisioning will not be possible on this node.", s.preconfiguredVG)
+			log.Info("preconfigured volume group and resource disk not found", "vg", s.preconfiguredVG)
+			s.recorder.Eventf(s.pod, nil, corev1.EventTypeWarning, volumeGroupNotReady, volumeGroupNotReady, msg)
+			return nil
+		}
+		s.recorder.Eventf(s.pod, nil, corev1.EventTypeWarning, volumeGroupNotReady, volumeGroupNotReady,
+			fmt.Sprintf("Preconfigured volume group %s is not visible from the driver container although the resource disk %s exists.", s.preconfiguredVG, resourceDisk))
+		return fmt.Errorf("preconfigured volume group %s is not visible from the driver container's LVM environment (resource disk %s exists); node preparation and driver disagree", s.preconfiguredVG, resourceDisk)
+	}
+
+	if !hasVolumeGroupTag(vg.Tags, DefaultVolumeGroupTag) {
+		s.recorder.Eventf(s.pod, nil, corev1.EventTypeWarning, volumeGroupNotReady, volumeGroupNotReady,
+			fmt.Sprintf("Preconfigured volume group %s does not carry the %s ownership tag (tags: %q).", s.preconfiguredVG, DefaultVolumeGroupTag, vg.Tags))
+		return fmt.Errorf("preconfigured volume group %s does not carry the %s ownership tag (tags: %q)", s.preconfiguredVG, DefaultVolumeGroupTag, vg.Tags)
+	}
+
+	pvs, err := s.lvm.ListPhysicalVolumes(ctx, &lvmMgr.ListPVOptions{Select: "vg_name=" + s.preconfiguredVG})
+	if err != nil {
+		return fmt.Errorf("failed to list physical volumes of preconfigured volume group %s: %w", s.preconfiguredVG, err)
+	}
+	pvNames := make([]string, 0, len(pvs))
+	for _, pv := range pvs {
+		pvNames = append(pvNames, pv.Name)
+	}
+
+	if linkErr == nil {
+		member := false
+		for _, name := range pvNames {
+			if name == resourceDisk {
+				member = true
+				break
+			}
+		}
+		if !member {
+			s.recorder.Eventf(s.pod, nil, corev1.EventTypeWarning, volumeGroupNotReady, volumeGroupNotReady,
+				fmt.Sprintf("Preconfigured volume group %s does not include the Azure resource disk %s (members: %s).", s.preconfiguredVG, resourceDisk, strings.Join(pvNames, ", ")))
+			return fmt.Errorf("preconfigured volume group %s does not include the Azure resource disk %s (members: %s)", s.preconfiguredVG, resourceDisk, strings.Join(pvNames, ", "))
+		}
+	}
+
+	msg := fmt.Sprintf("Volume group %s is ready: %d physical volume(s) (%s), %s free of %s.",
+		s.preconfiguredVG, len(pvNames), strings.Join(pvNames, ", "),
+		formatBytes(int64(vg.Free)), formatBytes(int64(vg.Size)))
+	log.Info("preconfigured volume group verified", "vg", s.preconfiguredVG, "pvs", pvNames, "free", int64(vg.Free), "size", int64(vg.Size))
+	s.recorder.Eventf(s.pod, nil, corev1.EventTypeNormal, volumeGroupReady, volumeGroupReady, msg)
+	return nil
+}
+
+// hasVolumeGroupTag reports whether the comma-separated LVM tag list
+// contains tag.
+func hasVolumeGroupTag(tags, tag string) bool {
+	for _, t := range strings.Split(tags, ",") {
+		if strings.TrimSpace(t) == tag {
+			return true
+		}
+	}
 	return false
 }
 

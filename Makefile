@@ -140,6 +140,11 @@ test-e2e-aks: ginkgo ## Run the e2e tests on AKS.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
 	$(call run_tests,e2e,./test/e2e,$(ARGS),)
 
+.PHONY: test-e2e-aks-resource-disk
+test-e2e-aks-resource-disk: ginkgo ## Run the Azure resource disk e2e tests on AKS. Requires a resource-disk node pool (deploy/parameters/resource-disk-ubuntu.json) and the chart installed with diskPreparation.azureResourceDisk enabled.
+	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
+	$(call run_tests,aks-resource-disk,./test/e2e,$(ARGS),)
+
 .PHONY: test-sanity
 test-sanity: ginkgo ## Run the sanity tests.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
@@ -205,7 +210,7 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 ##@ Build
 
 .PHONY: build
-build: build-driver build-manager ## Build driver and manager binaries.
+build: build-driver build-manager build-nodeprep ## Build driver, manager and nodeprep binaries.
 
 .PHONY: build-driver
 build-driver: fmt fix vet ## Build driver binary.
@@ -214,6 +219,10 @@ build-driver: fmt fix vet ## Build driver binary.
 .PHONY: build-manager
 build-manager: fmt fix vet ## Build manager binary.
 	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-manager cmd/manager/main.go
+
+.PHONY: build-nodeprep
+build-nodeprep: fmt fix vet ## Build node preparation binary.
+	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-nodeprep cmd/nodeprep/main.go
 
 .PHONY: run
 run: fmt fix vet ## Run the local CSI driver from your host.

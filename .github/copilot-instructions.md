@@ -17,6 +17,13 @@ controller-runtime architecture and conventions. Two binaries:
 - **`cmd/manager/main.go`** — Deployment with webhooks
   (validating + mutating) and PV cleanup controller. Uses
   leader election and cert rotation via OPA cert-controller.
+- **`cmd/nodeprep/main.go`** — Optional privileged init
+  container binary (`local-csi-nodeprep`). Prepares the Azure
+  ephemeral resource disk as a tagged LVM volume group before
+  the driver starts (Helm:
+  `diskPreparation.azureResourceDisk`). Executes host commands
+  via `nsenter --target 1`; all destructive steps fail closed
+  on unrecognized disk states.
 
 No CRDs — operates on standard Kubernetes PersistentVolumes
 and PersistentVolumeClaims.
@@ -71,7 +78,8 @@ Integration tests (`suite_test.go` files) require `kubebuilder` binaries (etcd, 
 ```text
 cmd/
 ├── driver/main.go              # CSI server DaemonSet binary
-└── manager/main.go             # Webhook + controller Deployment
+├── manager/main.go             # Webhook + controller Deployment
+└── nodeprep/main.go            # Azure resource disk init container
 internal/
 ├── csi/                        # CSI gRPC server implementation
 │   ├── controller/             # CSI ControllerServer
@@ -92,6 +100,7 @@ internal/
     ├── lvm/                    # LVM manager interface + mock
     ├── block/                  # Block device utils + mock
     ├── probe/                  # NVMe device discovery + mock
+    ├── nodeprep/               # Azure resource disk preparation
     └── telemetry/              # OTel tracing + Prometheus
 ```
 

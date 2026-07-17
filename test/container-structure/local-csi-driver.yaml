@@ -4,6 +4,13 @@ fileExistenceTests:
     path: '/local-csi-driver'
     shouldExist: true
     permissions: '-rwxr-xr-x'
+  - name: 'Check /local-csi-nodeprep binary'
+    path: '/local-csi-nodeprep'
+    shouldExist: true
+    permissions: '-rwxr-xr-x'
+  - name: 'Check nsenter is available for node preparation'
+    path: '/usr/bin/nsenter'
+    shouldExist: true
   - name: 'Check /NOTICE.txt exists'
     path: '/NOTICE.txt'
     shouldExist: true
@@ -16,6 +23,15 @@ fileContentTests:
 commandTests:
   - name: 'Check /local-csi-driver --version'
     command: /local-csi-driver
+    args:
+    - --version
+    expectedError:
+    - 'buildId'
+    - 'gitCommit'
+    - 'buildDate'
+    exitCode: 0
+  - name: 'Check /local-csi-nodeprep --version'
+    command: /local-csi-nodeprep
     args:
     - --version
     expectedError:

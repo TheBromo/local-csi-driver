@@ -88,6 +88,7 @@ func main() {
 	var enableLVMOrphanCleanup bool
 	var lvmOrphanCleanupInterval time.Duration
 	var runAlongsideWebhook bool
+	var preconfiguredVolumeGroup string
 	flag.StringVar(&nodeName, "node-name", "",
 		"The name of the node this agent is running on.")
 	flag.StringVar(&podName, "pod-name", "",
@@ -129,6 +130,9 @@ func main() {
 		"Interval for the LVM orphan cleanup controller to scan and clean up orphaned volumes.")
 	flag.BoolVar(&runAlongsideWebhook, "run-alongside-webhook", false,
 		"If set, indicates that the driver is running alongside a separate webhook deployment. This affects PV node affinity behavior.")
+	flag.StringVar(&preconfiguredVolumeGroup, "preconfigured-volume-group", "",
+		"Name of a volume group created by node preparation (e.g. on the Azure resource disk). When set, the driver verifies "+
+			"the volume group is visible, tagged and backed by the resource disk at startup instead of scanning for NVMe disks.")
 	// Initialize logger flagsconfig.
 	logConfig := textlogger.NewConfig(textlogger.VerbosityFlagName("v"))
 	logConfig.AddFlags(flag.CommandLine)
@@ -276,7 +280,14 @@ func main() {
 
 	// Run startup diagnostic to check disk availability and emit a Warning
 	// event on the pod if no disks are available for volume group creation.
+	// With a preconfigured volume group (node preparation enabled), the
+	// diagnostic instead verifies the prepared volume group and fails
+	// startup when it is not usable from the driver container.
 	startupDiag := lvm.NewStartupDiagnostic(deviceProbe, blockDevUtils, probe.EphemeralDiskFilter, recorder, selfPod)
+	if preconfiguredVolumeGroup != "" {
+		log.Info("verifying preconfigured volume group at startup", "vg", preconfiguredVolumeGroup)
+		startupDiag = startupDiag.WithPreconfiguredVolumeGroup(preconfiguredVolumeGroup, lvmMgr, nil)
+	}
 	if err := mgr.Add(startupDiag); err != nil {
 		logAndExit(err, "unable to add startup diagnostic to manager")
 	}
