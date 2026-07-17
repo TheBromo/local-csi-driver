@@ -639,28 +639,39 @@ func (l *LVM) Cleanup(ctx context.Context) error {
 		return nil
 	}
 
+	// Cleanup is scoped strictly to volume groups tagged with
+	// DefaultVolumeGroupTag and the physical volumes backing them. Foreign
+	// PVs and VGs (e.g. created by an administrator or another CSI driver)
+	// must never be touched, so when no managed volume group exists no PVs
+	// are removed either.
 	for _, vg := range volumeGroup {
+		// Save the PVs backing this managed VG before removing it, since the
+		// vg_name association is lost once the VG is removed.
+		pvs, err := l.lvm.ListPhysicalVolumes(ctx, &lvm.ListPVOptions{Select: "vg_name=" + vg.Name})
+		if err != nil {
+			log.Error(err, "failed to list physical volumes", "vg", vg.Name)
+			span.SetStatus(codes.Error, "failed to list physical volumes")
+			span.RecordError(err)
+			return fmt.Errorf("failed to list physical volumes for volume group %s: %w", vg.Name, err)
+		}
+		devices := make([]string, 0, len(pvs))
+		for _, pv := range pvs {
+			devices = append(devices, pv.Name)
+		}
+
 		if err := l.removeVolumeGroup(ctx, vg.Name); err != nil {
 			log.Error(err, "failed to remove volume group", "vg", vg.Name)
 			span.SetStatus(codes.Error, "failed to remove volume group")
 			span.RecordError(err)
 			return fmt.Errorf("failed to remove volume group %s: %w", vg.Name, err)
 		}
-	}
 
-	pvs, err := l.lvm.ListPhysicalVolumes(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to list physical volumes: %w", err)
-	}
-
-	devices := make([]string, 0, len(pvs))
-	for _, pv := range pvs {
-		devices = append(devices, pv.Name)
-	}
-
-	if err := l.removePhysicalVolumes(ctx, devices); err != nil {
-		log.Error(err, "failed to remove physical volumes", "devices", devices)
-		return err
+		if err := l.removePhysicalVolumes(ctx, devices); err != nil {
+			log.Error(err, "failed to remove physical volumes", "devices", devices)
+			span.SetStatus(codes.Error, "failed to remove physical volumes")
+			span.RecordError(err)
+			return err
+		}
 	}
 	log.V(1).Info("cleanup completed")
 	return nil

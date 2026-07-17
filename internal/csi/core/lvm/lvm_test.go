@@ -805,8 +805,8 @@ func TestCleanup(t *testing.T) {
 		{
 			name: "no volume groups found",
 			expectLvm: func(m *lvmMgr.MockManager) {
+				// No managed VG exists, so no PVs may be listed or removed.
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return([]lvmMgr.VolumeGroup{}, nil)
-				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return([]lvmMgr.PhysicalVolume{}, nil).Times(2)
 			},
 			expectedErr: nil,
 		},
@@ -833,7 +833,9 @@ func TestCleanup(t *testing.T) {
 			name: "remove volume group error",
 			expectLvm: func(m *lvmMgr.MockManager) {
 				vgs := []lvmMgr.VolumeGroup{{Name: "vg1", LVCount: 0}}
+				pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1", VGName: "vg1"}}
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return(vgs, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg1"}).Return(pvs, nil)
 				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg1").Return(&vgs[0], nil)
 				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg1"}).Return(errTestInternal)
 			},
@@ -844,9 +846,7 @@ func TestCleanup(t *testing.T) {
 			expectLvm: func(m *lvmMgr.MockManager) {
 				vgs := []lvmMgr.VolumeGroup{{Name: "vg1", LVCount: 0}}
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return(vgs, nil)
-				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg1").Return(&vgs[0], nil)
-				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg1"}).Return(nil)
-				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(nil, errTestInternal)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg1"}).Return(nil, errTestInternal)
 			},
 			expectedErr: errTestInternal,
 		},
@@ -854,11 +854,12 @@ func TestCleanup(t *testing.T) {
 			name: "remove physical volumes error",
 			expectLvm: func(m *lvmMgr.MockManager) {
 				vgs := []lvmMgr.VolumeGroup{{Name: "vg1", LVCount: 0}}
-				pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1"}}
+				pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1", VGName: "vg1"}}
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return(vgs, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg1"}).Return(pvs, nil)
 				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg1").Return(&vgs[0], nil)
 				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg1"}).Return(nil)
-				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(pvs, nil).Times(2)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(pvs, nil)
 				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/pv1"}).Return(errTestInternal)
 			},
 			expectedErr: errTestInternal,
@@ -870,25 +871,54 @@ func TestCleanup(t *testing.T) {
 					{Name: "vg1", LVCount: 0},
 					{Name: "vg2", LVCount: 0},
 				}
-				pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1"}, {Name: "/dev/pv2"}}
+				vg1Pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1", VGName: "vg1"}}
+				vg2Pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv2", VGName: "vg2"}}
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return(vgs, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg1"}).Return(vg1Pvs, nil)
 				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg1").Return(&vgs[0], nil)
 				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg1"}).Return(nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(vg1Pvs, nil)
+				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/pv1"}).Return(nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg2"}).Return(vg2Pvs, nil)
 				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg2").Return(&vgs[1], nil)
 				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg2"}).Return(nil)
-				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(pvs, nil).Times(2)
-				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/pv1"}).Return(nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(vg2Pvs, nil)
 				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/pv2"}).Return(nil)
 			},
 			expectedErr: nil,
 		},
 		{
-			name: "successful cleanup no volume groups",
+			name: "no managed volume groups leaves foreign PVs untouched",
 			expectLvm: func(m *lvmMgr.MockManager) {
-				pvs := []lvmMgr.PhysicalVolume{{Name: "/dev/pv1"}}
+				// A foreign PV (e.g. an Azure Disk CSI or admin-created LVM
+				// device on /dev/sdc) exists but no VG is tagged local-csi.
+				// Cleanup must not list or remove any PVs; the mock rejects
+				// unexpected RemovePhysicalVolume/ListPhysicalVolumes calls.
 				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return([]lvmMgr.VolumeGroup{}, nil)
-				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(pvs, nil).Times(2)
-				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/pv1"}).Return(nil)
+			},
+			expectedErr: nil,
+		},
+		{
+			name: "foreign vg and pv preserved during managed cleanup",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				// Managed vg1 is backed by /dev/nvme0n1; a foreign VG on
+				// /dev/sdc also exists on the node. Only the managed PV may
+				// be removed even though the unfiltered PV listing used for
+				// idempotency checks reports both devices.
+				vgs := []lvmMgr.VolumeGroup{{Name: "vg1", LVCount: 0}}
+				managedPvs := []lvmMgr.PhysicalVolume{{Name: "/dev/nvme0n1", VGName: "vg1"}}
+				allPvs := []lvmMgr.PhysicalVolume{
+					{Name: "/dev/nvme0n1", VGName: "vg1"},
+					{Name: "/dev/sdc", VGName: "foreignvg"},
+				}
+				m.EXPECT().ListVolumeGroups(gomock.Any(), &lvmMgr.ListVGOptions{Select: "vg_tags=local-csi"}).Return(vgs, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=vg1"}).Return(managedPvs, nil)
+				m.EXPECT().GetVolumeGroup(gomock.Any(), "vg1").Return(&vgs[0], nil)
+				m.EXPECT().RemoveVolumeGroup(gomock.Any(), lvmMgr.RemoveVGOptions{Name: "vg1"}).Return(nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), gomock.Nil()).Return(allPvs, nil)
+				// Only the managed PV is removed; a RemovePhysicalVolume call
+				// for /dev/sdc would fail the test.
+				m.EXPECT().RemovePhysicalVolume(gomock.Any(), lvmMgr.RemovePVOptions{Name: "/dev/nvme0n1"}).Return(nil)
 			},
 			expectedErr: nil,
 		},
