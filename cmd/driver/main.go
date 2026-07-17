@@ -129,6 +129,10 @@ func main() {
 		"Interval for the LVM orphan cleanup controller to scan and clean up orphaned volumes.")
 	flag.BoolVar(&runAlongsideWebhook, "run-alongside-webhook", false,
 		"If set, indicates that the driver is running alongside a separate webhook deployment. This affects PV node affinity behavior.")
+	// Register the chart-to-driver compatibility seam now. Validation and use of
+	// the preconfigured volume group will be added with the preparation logic.
+	flag.String("preconfigured-volume-group", "",
+		"The host-prepared volume group that must be validated before serving CSI requests.")
 	// Initialize logger flagsconfig.
 	logConfig := textlogger.NewConfig(textlogger.VerbosityFlagName("v"))
 	logConfig.AddFlags(flag.CommandLine)

@@ -44,7 +44,8 @@ ARG LDFLAGS="\
 # CGO_ENABLED=1 is required to build the driver with FIPS support.
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 GOEXPERIMENT=systemcrypto GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -v -ldflags "${LDFLAGS}" -o local-csi-driver cmd/driver/main.go
+    CGO_ENABLED=1 GOEXPERIMENT=systemcrypto GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -v -ldflags "${LDFLAGS}" -o local-csi-driver cmd/driver/main.go && \
+    CGO_ENABLED=1 GOEXPERIMENT=systemcrypto GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -v -ldflags "${LDFLAGS}" -o local-csi-nodeprep cmd/nodeprep/main.go
 
 
 # Generate NOTICE.txt from dependency licenses. Built in parallel with `builder`.
@@ -81,6 +82,7 @@ RUN tdnf install -y --releasever 3.0 --installroot /staging \
 FROM mcr.microsoft.com/azurelinux/distroless/minimal:3.0@sha256:576d9769c0146cbf0cf7946bacf536c5758464c29eadfa03ef5090ae708e641f
 WORKDIR /
 COPY --from=builder /workspace/local-csi-driver .
+COPY --from=builder /workspace/local-csi-nodeprep .
 COPY --from=dependency-install /staging /
 COPY --from=notice /workspace/NOTICE.txt /
 

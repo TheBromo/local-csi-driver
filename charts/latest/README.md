@@ -51,6 +51,11 @@ and their default values.
 | `daemonset.serviceAccount.annotations`        | Annotations for the service account. If empty, no annotations are applied.                                                                                                  |                                                                                                                          |
 | `raid.enabled`                                | **EXPERIMENTAL**: Enables mdadm RAID 0 setup. Combines unused NVMe devices into a RAID 0 array with LVM on top. When disabled, LVM raid is used. Migration not supported.   | `false`                                                                                                                  |
 | `raid.volumeGroup`                            | The volume group name to create on the RAID device. Must match the `volumeGroup` parameter in StorageClass if using a custom name.                                          | `containerstorage`                                                                                                       |
+| `diskPreparation.azureResourceDisk.enabled`   | Enables the privileged Azure resource-disk preparation init container. Cannot be enabled together with `raid.enabled`.                                                      | `false`                                                                                                                  |
+| `diskPreparation.azureResourceDisk.required`  | Fails node initialization when `/dev/disk/azure/resource` is absent.                                                                                                        | `true`                                                                                                                   |
+| `diskPreparation.azureResourceDisk.allowDestructivePreparation` | Explicitly acknowledges that the recognized cloud-init `/mnt` layout may be erased. Must be `true` when preparation is enabled.                       | `false`                                                                                                                  |
+| `diskPreparation.azureResourceDisk.volumeGroup` | Volume group to create on the resource disk. Must match a custom StorageClass `volumeGroup` parameter.                                                                    | `containerstorage`                                                                                                       |
+| `diskPreparation.azureResourceDisk.cloudInitTimeout` | Maximum time to wait for host cloud-init before inspecting the resource disk.                                                                                         | `10m`                                                                                                                    |
 | `cleanup.enabled`                             | Cleanup volume groups and physical volumes on pod termination if logical volumes are not in use.                                                                            | `true`                                                                                                                   |
 | `cleanup.lvGarbageCollection.enabled`         | Enable event-driven LV garbage collection for node annotation mismatches.                                                                                                   | `true`                                                                                                                   |
 | `cleanup.lvmOrphanCleanup.enabled`            | Enable periodic LVM orphan cleanup scanning.                                                                                                                                | `true`                                                                                                                   |
@@ -78,6 +83,37 @@ and their default values.
 | `observability.nodeDriverRegistrar.log.level` | csi-node-driver-registrar log level.                                                                                                                                        | `1`                                                                                                                      |
 | `observability.nodeDriverRegistrar.http.port` | csi-node-driver-registrar health and metrics port.                                                                                                                          | `8092`                                                                                                                   |
 <!-- markdownlint-enable MD033 -->
+
+## Azure Resource Disk Preparation
+
+Azure resource-disk preparation is disabled by default. Enabling it adds a
+privileged `node-prep` init container before the driver and passes the same
+configured volume group to both entrypoints. The init container receives host
+`/dev`, host PID access, and a read/write host `/etc` mount.
+
+The current node-preparation entrypoint is a fail-closed scaffold. Until the
+preparation implementation is added, enabling this option intentionally keeps
+the CSI driver from starting.
+
+The destructive acknowledgement and the RAID conflict are enforced while the
+chart is rendered:
+
+```yaml
+diskPreparation:
+  azureResourceDisk:
+    enabled: true
+    required: true
+    allowDestructivePreparation: true
+    volumeGroup: containerstorage
+    cloudInitTimeout: 10m
+```
+
+Preparation is a one-way host conversion: disabling the Helm option does not
+restore the cloud-init filesystem or remount `/mnt`. Use a node selector or
+affinity to restrict preparation to a dedicated node pool. If `volumeGroup` is
+changed, the StorageClass `volumeGroup` parameter must use exactly the same
+value. The destructive permission belongs only in cluster-admin Helm values;
+StorageClass parameters do not authorize host preparation.
 
 ## RAID Configuration
 

@@ -5,10 +5,10 @@
 ## Project Overview
 
 A Kubernetes CSI (Container Storage Interface) driver for Azure
-local NVMe disks, built on
+local disks, built on
 [controller-runtime](https://github.com/kubernetes-sigs/controller-runtime).
 All controllers, webhooks, and manager setup must strictly follow
-controller-runtime architecture and conventions. Two binaries:
+controller-runtime architecture and conventions. Three binaries:
 
 - **`cmd/driver/main.go`** — DaemonSet CSI node/controller
   server. Manages LVM volumes, runs garbage collection
@@ -17,6 +17,8 @@ controller-runtime architecture and conventions. Two binaries:
 - **`cmd/manager/main.go`** — Deployment with webhooks
   (validating + mutating) and PV cleanup controller. Uses
   leader election and cert rotation via OPA cert-controller.
+- **`cmd/nodeprep/main.go`** — Privileged DaemonSet init
+  container entrypoint for opt-in host disk preparation.
 
 No CRDs — operates on standard Kubernetes PersistentVolumes
 and PersistentVolumeClaims.
@@ -24,10 +26,12 @@ and PersistentVolumeClaims.
 ## Build, Test, and Lint
 
 ```bash
-make build                  # Build both driver and manager binaries
+make build                  # Build all three binaries
 make build-driver           # Build driver binary only
+make build-nodeprep         # Build node preparation binary only
 make build-manager          # Build manager binary only
 make test                   # Unit tests with race detection and coverage
+make test-helm-nodeprep     # Node preparation Helm rendering tests
 make lint                   # golangci-lint v2
 make lint-fix               # golangci-lint with auto-fix
 make mocks                  # Regenerate mocks (go generate ./...)
@@ -71,7 +75,8 @@ Integration tests (`suite_test.go` files) require `kubebuilder` binaries (etcd, 
 ```text
 cmd/
 ├── driver/main.go              # CSI server DaemonSet binary
-└── manager/main.go             # Webhook + controller Deployment
+├── manager/main.go             # Webhook + controller Deployment
+└── nodeprep/main.go            # Host disk preparation init binary
 internal/
 ├── csi/                        # CSI gRPC server implementation
 │   ├── controller/             # CSI ControllerServer
