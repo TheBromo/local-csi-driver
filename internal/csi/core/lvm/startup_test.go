@@ -16,12 +16,16 @@ import (
 
 	"local-csi-driver/internal/csi/core/lvm"
 	"local-csi-driver/internal/pkg/block"
+	lvmMgr "local-csi-driver/internal/pkg/lvm"
 	"local-csi-driver/internal/pkg/probe"
 )
 
 const (
-	expectedWarningPrefix = "Warning NoDiskAvailable"
-	expectedNormalPrefix  = "Normal DiskDiscoveryComplete"
+	expectedWarningPrefix        = "Warning NoDiskAvailable"
+	expectedNormalPrefix         = "Normal DiskDiscoveryComplete"
+	expectedVGReadyPrefix        = "Normal VolumeGroupReady"
+	expectedVGNotReadyPrefix     = "Warning VolumeGroupNotReady"
+	testPreconfiguredVolumeGroup = "containerstorage"
 )
 
 func newTestPod() *corev1.Pod {
@@ -276,6 +280,126 @@ func TestStartupDiagnostic_MultipleNVMe_SomeFormatted(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected a Warning event, got none")
+	}
+}
+
+func TestStartupDiagnostic_PreconfiguredVG(t *testing.T) {
+	t.Parallel()
+
+	resourceDisk := "/dev/sdb"
+	resolveOK := func(string) (string, error) { return resourceDisk, nil }
+	resolveMissing := func(string) (string, error) { return "", fmt.Errorf("no such file or directory") }
+
+	tests := []struct {
+		name        string
+		expectLvm   func(*lvmMgr.MockManager)
+		resolveLink func(string) (string, error)
+		expectErr   string
+		expectEvent string
+	}{
+		{
+			name: "volume group ready",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(&lvmMgr.VolumeGroup{
+					Name: testPreconfiguredVolumeGroup,
+					Tags: "local-csi",
+					Size: lvmMgr.Int64String(256 * 1024 * 1024 * 1024),
+					Free: lvmMgr.Int64String(200 * 1024 * 1024 * 1024),
+				}, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=" + testPreconfiguredVolumeGroup}).
+					Return([]lvmMgr.PhysicalVolume{{Name: "/dev/sdb", VGName: testPreconfiguredVolumeGroup}}, nil)
+			},
+			resolveLink: resolveOK,
+			expectEvent: expectedVGReadyPrefix,
+		},
+		{
+			name: "volume group missing with resource disk present fails startup",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(nil, lvmMgr.ErrNotFound)
+			},
+			resolveLink: resolveOK,
+			expectErr:   "not visible from the driver container",
+			expectEvent: expectedVGNotReadyPrefix,
+		},
+		{
+			name: "volume group and resource disk missing is a warning only",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(nil, lvmMgr.ErrNotFound)
+			},
+			resolveLink: resolveMissing,
+			expectEvent: expectedVGNotReadyPrefix,
+		},
+		{
+			name: "missing ownership tag fails startup",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(&lvmMgr.VolumeGroup{
+					Name: testPreconfiguredVolumeGroup,
+					Tags: "someone-else",
+				}, nil)
+			},
+			resolveLink: resolveOK,
+			expectErr:   "ownership tag",
+			expectEvent: expectedVGNotReadyPrefix,
+		},
+		{
+			name: "resource disk not a member fails startup",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(&lvmMgr.VolumeGroup{
+					Name: testPreconfiguredVolumeGroup,
+					Tags: "local-csi",
+				}, nil)
+				m.EXPECT().ListPhysicalVolumes(gomock.Any(), &lvmMgr.ListPVOptions{Select: "vg_name=" + testPreconfiguredVolumeGroup}).
+					Return([]lvmMgr.PhysicalVolume{{Name: "/dev/nvme0n1", VGName: testPreconfiguredVolumeGroup}}, nil)
+			},
+			resolveLink: resolveOK,
+			expectErr:   "does not include the Azure resource disk",
+			expectEvent: expectedVGNotReadyPrefix,
+		},
+		{
+			name: "volume group lookup error fails startup",
+			expectLvm: func(m *lvmMgr.MockManager) {
+				m.EXPECT().GetVolumeGroup(gomock.Any(), testPreconfiguredVolumeGroup).Return(nil, fmt.Errorf("lvm broken"))
+			},
+			resolveLink: resolveOK,
+			expectErr:   "failed to look up preconfigured volume group",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockLvm := lvmMgr.NewMockManager(ctrl)
+			tc.expectLvm(mockLvm)
+			recorder := kevents.NewFakeRecorder(10)
+
+			diag := lvm.NewStartupDiagnostic(probe.NewMock(ctrl), block.NewMock(ctrl), probe.EphemeralDiskFilter, recorder, newTestPod()).
+				WithPreconfiguredVolumeGroup(testPreconfiguredVolumeGroup, mockLvm, tc.resolveLink)
+
+			err := diag.Start(context.Background())
+			if tc.expectErr == "" && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.expectErr != "" && (err == nil || !strings.Contains(err.Error(), tc.expectErr)) {
+				t.Fatalf("expected error containing %q, got: %v", tc.expectErr, err)
+			}
+
+			select {
+			case event := <-recorder.Events:
+				if tc.expectEvent == "" {
+					t.Fatalf("expected no event, got: %s", event)
+				}
+				if !strings.HasPrefix(event, tc.expectEvent) {
+					t.Fatalf("expected event with prefix %q, got: %s", tc.expectEvent, event)
+				}
+			default:
+				if tc.expectEvent != "" {
+					t.Fatal("expected an event, got none")
+				}
+			}
+		})
 	}
 }
 
