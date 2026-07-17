@@ -36,8 +36,45 @@ spec:
     spec:
       affinity:
         {{- include "chart.nodeAffinity" . | nindent 8 }}
-      {{- if .Values.raid.enabled }}
+      {{- if and .Values.raid.enabled .Values.diskPreparation.azureResourceDisk.enabled }}
+      {{- fail "raid.enabled and diskPreparation.azureResourceDisk.enabled are mutually exclusive: both initializers would try to create the volume group on different backing devices" }}
+      {{- end }}
+      {{- if and .Values.diskPreparation.azureResourceDisk.enabled (not .Values.diskPreparation.azureResourceDisk.allowDestructivePreparation) }}
+      {{- fail "diskPreparation.azureResourceDisk.allowDestructivePreparation must be set to true to acknowledge that enabling resource disk preparation erases the cloud-init filesystem on the Azure resource disk, including all data under /mnt" }}
+      {{- end }}
+      {{- if or .Values.raid.enabled .Values.diskPreparation.azureResourceDisk.enabled }}
       initContainers:
+      {{- end }}
+      {{- if .Values.diskPreparation.azureResourceDisk.enabled }}
+      - name: node-prep
+        {{- if hasPrefix "/" .Values.image.driver.repository }}
+        image: "{{ .Values.image.baseRepo }}{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
+        {{- else }}
+        image: "{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.driver.pullPolicy }}
+        command:
+        - /local-csi-nodeprep
+        args:
+        - --volume-group={{ .Values.diskPreparation.azureResourceDisk.volumeGroup }}
+        - --required={{ .Values.diskPreparation.azureResourceDisk.required }}
+        - --allow-destructive-preparation={{ .Values.diskPreparation.azureResourceDisk.allowDestructivePreparation }}
+        - --cloud-init-timeout={{ .Values.diskPreparation.azureResourceDisk.cloudInitTimeout }}
+        - --v={{ .Values.observability.driver.log.level }}
+        securityContext:
+          runAsUser: 0
+          privileged: true
+        terminationMessagePath: /tmp/termination-log
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /dev
+          name: device
+        - mountPath: /host/etc
+          name: host-etc
+        - mountPath: /host/run
+          name: host-run
+      {{- end }}
+      {{- if .Values.raid.enabled }}
       - name: raid
         {{- if hasPrefix "/" .Values.image.driver.repository }}
         image: "{{ .Values.image.baseRepo }}{{ .Values.image.driver.repository }}:{{ .Values.image.driver.tag | default .Chart.AppVersion }}"
@@ -93,6 +130,9 @@ spec:
         - --enable-lvm-orphan-cleanup={{ .Values.cleanup.lvmOrphanCleanup.enabled }}
         - --lvm-orphan-cleanup-interval={{ .Values.cleanup.lvmOrphanCleanup.interval }}
         - --run-alongside-webhook={{ .Values.webhook.hyperconverged.enabled | default false }}
+        {{- if .Values.diskPreparation.azureResourceDisk.enabled }}
+        - --preconfigured-volume-group={{ .Values.diskPreparation.azureResourceDisk.volumeGroup }}
+        {{- end }}
         command:
         - /local-csi-driver
         env:
@@ -299,6 +339,19 @@ spec:
           path: /dev
           type: Directory
         name: device
+      {{- if .Values.diskPreparation.azureResourceDisk.enabled }}
+      # Host /etc and /run are only mounted into the node-prep init
+      # container, for atomic fstab edits and the host-wide preparation
+      # lock respectively.
+      - hostPath:
+          path: /etc
+          type: Directory
+        name: host-etc
+      - hostPath:
+          path: /run
+          type: Directory
+        name: host-run
+      {{- end }}
       - hostPath:
           path: /var/lib/kubelet/plugins/localdisk.csi.acstor.io/
           type: DirectoryOrCreate

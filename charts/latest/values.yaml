@@ -78,6 +78,40 @@ raid:
   # StorageClass in the `VolumeGroup` parameter.
   volumeGroup: containerstorage
 
+# Disk preparation configuration.
+# EXPERIMENTAL: This feature is experimental and may change in future releases.
+diskPreparation:
+  # Prepares the Azure ephemeral resource disk (the temporary disk on SKUs
+  # without local NVMe, e.g. Standard_NV36ads_A10_v5) as an LVM volume group
+  # before the driver starts, using a privileged init container.
+  azureResourceDisk:
+    # Enables Azure resource disk preparation. Disabled by default because,
+    # once explicitly enabled, preparation erases the cloud-init managed
+    # /mnt filesystem on the resource disk and runs automatically on every
+    # DaemonSet start. This is a one-way host conversion: disabling the
+    # option later does not restore /mnt; rollback requires manual
+    # restoration or a node reimage. Cannot be combined with raid.enabled.
+    enabled: false
+
+    # Fail node preparation (and block the driver pod) when the node has no
+    # Azure resource disk. Set to false to treat such nodes as having no
+    # disks of this class and fall back to NVMe discovery.
+    required: true
+
+    # Explicit acknowledgement that the resource disk will be erased,
+    # including ALL DATA under /mnt. Must be set to true when enabled.
+    allowDestructivePreparation: false
+
+    # The volume group name to create on the resource disk. This volume
+    # group will be used for creating logical volumes for the PVCs. If this
+    # changes from the default "containerstorage", then it must also be
+    # specified in the StorageClass in the `volumeGroup` parameter.
+    volumeGroup: containerstorage
+
+    # Maximum time to wait for cloud-init to finish before failing, so
+    # preparation does not race the module that mounts the resource disk.
+    cloudInitTimeout: 10m
+
 # Garbage collection and cleanup configuration.
 cleanup:
   # Cleanup volume groups and physical volumes on pod termination if logical volume are not in use.
