@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -198,7 +199,7 @@ func (p *Preparer) checkWaagentConf() error {
 		}
 		return fmt.Errorf("failed to read %s: %w", path, err)
 	}
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -316,13 +317,7 @@ func (p *Preparer) verifyAndActivate(ctx context.Context, device string) error {
 	if err != nil {
 		return err
 	}
-	found := false
-	for _, d := range devices {
-		if d == device {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(devices, device)
 	if !found {
 		return fmt.Errorf("volume group %s exists but does not include the resource disk %s (members: %s)", p.cfg.VolumeGroup, device, strings.Join(devices, ", "))
 	}
@@ -368,7 +363,7 @@ func (p *Preparer) ensureDevicesFileEntry(ctx context.Context, device string) er
 
 // hasTag reports whether the comma-separated LVM tag list contains tag.
 func hasTag(tags, tag string) bool {
-	for _, t := range strings.Split(tags, ",") {
+	for t := range strings.SplitSeq(tags, ",") {
 		if strings.TrimSpace(t) == tag {
 			return true
 		}
@@ -472,7 +467,7 @@ func (p *Preparer) takeOwnershipFromCloudInit(ctx context.Context, disk *Device)
 	if err != nil {
 		return fmt.Errorf("failed to list host mounts: %w", err)
 	}
-	for _, target := range strings.Fields(string(out)) {
+	for target := range strings.FieldsSeq(string(out)) {
 		if strings.HasPrefix(target, mntTarget+"/") {
 			return fmt.Errorf("found mount %s below /mnt, refusing to unmount", target)
 		}

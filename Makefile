@@ -140,6 +140,11 @@ test-e2e-aks: ginkgo ## Run the e2e tests on AKS.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
 	$(call run_tests,e2e,./test/e2e,$(ARGS),)
 
+PHONY: test-e2e-aks-resource-disk
+test-e2e-aks-resource-disk: ginkgo ## Run the Azure resource disk e2e tests on AKS. Requires a resource-disk node pool (deploy/parameters/resource-disk-ubuntu.json) and the chart installed with diskPreparation.azureResourceDisk enabled.
+	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
+	$(call run_tests,aks-resource-disk,./test/e2e,$(ARGS),)
+
 .PHONY: test-sanity
 test-sanity: ginkgo ## Run the sanity tests.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)

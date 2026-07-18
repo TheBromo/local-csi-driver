@@ -27,3 +27,12 @@ commandTests:
     - 'gitCommit'
     - 'buildDate'
     exitCode: 0
+  - name: 'Check /local-csi-nodeprep --version'
+    command: /local-csi-nodeprep
+    args:
+    - --version
+    expectedError:
+    - 'buildId'
+    - 'gitCommit'
+    - 'buildDate'
+    exitCode: 0
