@@ -140,6 +140,11 @@ test-e2e-aks: ginkgo ## Run the e2e tests on AKS.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
 	$(call run_tests,e2e,./test/e2e,$(ARGS),)
 
+PHONY: test-e2e-aks-resource-disk
+test-e2e-aks-resource-disk: ginkgo ## Run the Azure resource disk e2e tests on AKS. Requires a resource-disk node pool (deploy/parameters/resource-disk-ubuntu.json) and the chart installed with diskPreparation.azureResourceDisk enabled.
+	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
+	$(call run_tests,aks-resource-disk,./test/e2e,$(ARGS),)
+
 .PHONY: test-sanity
 test-sanity: ginkgo ## Run the sanity tests.
 	$(eval ARGS := $(ADDITIONAL_GINKGO_FLAGS) --fail-fast)
@@ -194,6 +199,10 @@ test-container-structure-driver: container-structure-test ## Run the driver cont
 test-container-structure-manager: container-structure-test ## Run the manager container structure tests.
 	$(CONTAINER_STRUCTURE_TEST) test --image $(MANAGER_IMG) --config test/container-structure/local-csi-manager.yaml
 
+.PHONY: test-helm-nodeprep
+test-helm-nodeprep: helm ## Test Azure resource-disk preparation chart rendering and safety validation.
+	./hack/test-nodeprep-chart.sh "$(HELM)"
+
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter.
 	$(GOLANGCI_LINT) run
@@ -205,11 +214,15 @@ lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes.
 ##@ Build
 
 .PHONY: build
-build: build-driver build-manager ## Build driver and manager binaries.
+build: build-driver build-nodeprep build-manager ## Build driver, node preparation, and manager binaries.
 
 .PHONY: build-driver
 build-driver: fmt fix vet ## Build driver binary.
 	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-driver cmd/driver/main.go
+
+.PHONY: build-nodeprep
+build-nodeprep: fmt fix vet ## Build node preparation binary.
+	go build -ldflags "$(LDFLAGS)" -o bin/local-csi-nodeprep cmd/nodeprep/main.go
 
 .PHONY: build-manager
 build-manager: fmt fix vet ## Build manager binary.

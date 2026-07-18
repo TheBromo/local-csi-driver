@@ -114,6 +114,7 @@ type Client struct {
 // Construct a new lvm2 client.
 func NewClient(opts ...ClientOption) *Client {
 	c := &Client{
+		block:   block.New(),
 		lvmPath: "/sbin/lvm",
 		tracer:  telemetry.NewNoopTracerProvider().Tracer("localdisk.csi.acstor.io/internal/pkg/lvm"),
 	}

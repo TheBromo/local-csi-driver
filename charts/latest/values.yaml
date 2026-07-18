@@ -78,6 +78,30 @@ raid:
   # StorageClass in the `VolumeGroup` parameter.
   volumeGroup: containerstorage
 
+# Host disk preparation configuration.
+# This feature is disabled by default because enabling it permanently converts
+# the Azure resource disk from the cloud-init-owned /mnt filesystem into an LVM
+# physical volume.
+diskPreparation:
+  azureResourceDisk:
+    # Enables preparation of the disk exposed by /dev/disk/azure/resource.
+    enabled: false
+
+    # Fail initialization when the Azure resource-disk link is absent. When
+    # false, a missing link is treated as a node without this disk class.
+    required: true
+
+    # Explicit acknowledgement that enabling preparation may erase /mnt and
+    # the recognized cloud-init resource-disk layout.
+    allowDestructivePreparation: false
+
+    # Volume group created on the Azure resource disk. A custom value must also
+    # be set as the StorageClass volumeGroup parameter.
+    volumeGroup: containerstorage
+
+    # Maximum time to wait for host cloud-init before inspecting the disk.
+    cloudInitTimeout: 10m
+
 # Garbage collection and cleanup configuration.
 cleanup:
   # Cleanup volume groups and physical volumes on pod termination if logical volume are not in use.
